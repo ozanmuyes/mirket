@@ -1,10 +1,11 @@
-// TODO Consider 'dotenv' - PROBABLY NOT rather use a provider
-
 /**
  * TODO Mirket description
  *
  * References;
+ * - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes
+ * - http://2ality.com/2015/02/es6-classes-final.html
  * - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy
+ * - https://www.keithcirkel.co.uk/metaprogramming-in-es6-part-3-proxies/
  * - https://www.keithcirkel.co.uk/metaprogramming-in-es6-symbols/
  */
 
@@ -53,9 +54,13 @@ class Kernel {
         throw new TypeError(`Configuration parameter must be either null or object, ${argType} given.`);
     }
 
+    // Check required configuration here
+    //
     if (!config.rootPath || config.rootPath === '') {
       throw new Error('Project root path must be given.');
     }
+
+    //
 
     // NOTE Set instance properties here
     //
@@ -78,7 +83,9 @@ class Kernel {
     // Public
     //
     this.id = randomValueHex();
-    // TODO Consider `container`
+    this.container = new Map();
+    this.isBooted = false;
+    //
   }
 
   register(providerObj) {
@@ -90,18 +97,18 @@ class Kernel {
     };
 
     if (Object.prototype.hasOwnProperty.call(providerObj, 'register')) {
-      if (typeof providerObj.register === 'function') {
+      if (typeof providerObj.register === 'function') { // TODO Consider 'async function'
         processedObj.registerFn = providerObj.register;
       } else {
-        // TODO Output warning
+        // TODO Output warning - register property of the provider is not a function
       }
     }
 
     if (Object.prototype.hasOwnProperty.call(providerObj, 'boot')) {
-      if (typeof providerObj.boot === 'function') {
+      if (typeof providerObj.boot === 'function') { // TODO Consider 'async function'
         processedObj.bootFn = providerObj.boot;
       } else {
-        // TODO Output warning
+        // TODO Output warning - boot property of the provider is not a function
       }
     }
 
@@ -109,7 +116,8 @@ class Kernel {
   }
 
   boot(callback = null) { // Return promise if `callback === null` otherwise call it (discouraged)
-    const inst = this;
+    const inst = this; // `this` is the Proxy
+    // TODO Try to bypass Proxy handler, directly use the Kernel instance
 
     // Process providers' path
     //
@@ -129,21 +137,112 @@ class Kernel {
         });
     } */
 
-    // TODO Call every `bootFn` async
-    // TODO Call every `registerFn` async
+    // Make an array of register functions via providers
+    //
+    const providerRegisterFns = [];
+    const registersReducer = (accumulator, current) => {
+      if (current.registerFn !== null) { // See `Kernel#register` for nullity check
+        accumulator.push(current.registerFn);
+      }
+    };
+    inst.providers.reduce(registersReducer, providerRegisterFns);
 
-    return new Promise((resolve, reject) => {
-      // FIXME Implement actual procedures here
-      // TODO Resolve with what??? config + container + bus?
+    // Make an array of boot functions via providers
+    //
+    const providerBootFns = [];
+    const bootsReducer = (accumulator, current) => {
+      if (current.bootFn !== null) { // See `Kernel#register` for nullity check
+        accumulator.push(current.bootFn);
+      }
+    };
+    inst.providers.reduce(bootsReducer, providerBootFns);
 
-      setTimeout(() => {
-        resolve(inst);
-      }, 123);
+    // Prepare functions to be passed 'register' functions of providers
+    //
+    // NOTE Each singleton MUST have it's unique identifier set upon binding OR see the note written with red pen
+    // NOTE Each binding MUST have it's unique identifier set upon instantiation
+    // NOTE Do NOT touch instance bindings
+    const bindingFns = {
+      bind: () => { /* set a factory function on the container */ },
+      singleton: (alias, instance) => {
+        // TODO Check for 'alias' uniqueness
+
+        // See https://stackoverflow.com/a/46179203/250453
+        // FIXME Check if shallow clone
+        const clone = { ...instance };
+        Object.defineProperty(clone, 'id', { // TODO Maybe use another name (e.g. 'containerId') to avoid collision
+          // No 'configurable', 'enumerable', 'writable' by default
+          value: randomValueHex(),
+        });
+
+        inst.container.set(alias, clone);
+
+        return null;
+      },
+      instance: (alias, instance) => {
+        inst.container.set(alias, instance);
+
+        return null;
+      },
+    };
+
+    // Call every `registerFn` (with `bind`, `singleton`, `instance` functions) async
+    // MAYBE do this before `boot`
+    providerRegisterFns.forEach(async (current) => {
+      // TODO With this can we return Promises from register functions of providers?
+      await current.call(null, bindingFns);
     });
+
+    // Call every `bootFn` (with `container') async
+    providerBootFns.forEach(async (current) => {
+      await current.call(null, inst);
+    });
+
+
+    // TODO If `callback` is null return promise, otherwise call the callback
+    //      Resolve (or call callback) with WHAT???
+
+    // FIXME Doesn't wait for `providerRegisterFns` and `providerBootFns` to finish
+    inst.isBooted = true;
+    return Promise.resolve(); // OR call the `callback`
+  }
+
+  _resolve(alias) { // Function for Proxy handler
+    // NOTE `this` here is the Proxy target (the Kernel instance), NOT the Proxy
+    //      since this function is invoked by `kernelProxyHandler.get()` below
+
+    // NOTE This function should be sync; NO returning Promise
+    //      OR do NOT resolve via Proxy `get` (see `kernelProxyHandler.get()`)
+
+    return this.container.get(alias);
+  }
+  resolve(alias) { // Function for Kernel instance beholder
+    // NOTE `this` here is the Proxy
+
+    return this.container.get(alias);
   }
 }
 
 // TODO Maybe App class here
+
+const kernelProxyHandler = {
+  get: (target, property, receiver) => {
+    /**
+     * Get a property of the target (Kernel instance in this case)
+     */
+
+    // An existing property requested
+    //
+    if (Reflect.has(target, property)) {
+      return Reflect.get(target, property, receiver);
+    }
+
+    // Resolve request
+    //
+    return target._resolve(property);
+  },
+  //
+};
 
 const exportedProxyHandler = {
   /* eslint-disable new-cap */
@@ -160,7 +259,8 @@ const exportedProxyHandler = {
     // NOTE `target` is the proxy target (Kernel class in this case),
     //      `args` is an array which contains arguments (`{ ...config }` in this case)
 
-    return new target(args[0]);
+    const kernelInst = new target(args[0]);
+    return new Proxy(kernelInst, kernelProxyHandler);
   },
   apply: (target, thisArg, args) => {
     /**
@@ -177,7 +277,8 @@ const exportedProxyHandler = {
       throw new Error('A singleton kernel has already been instantiated.');
     }
 
-    global.mirket.singleton = new target(args[0]);
+    const kernelInst = new target(args[0]);
+    global.mirket.singleton = new Proxy(kernelInst, kernelProxyHandler);
 
     return global.mirket.singleton;
   },

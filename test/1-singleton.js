@@ -17,12 +17,9 @@ function removeMirketFromRequire() {
   }
 }
 
-describe.skip('Mirket Singleton Instantiation', function() {
+describe.skip('1) Mirket Singleton Instantiation', function() {
   const config = {
     rootPath: path.resolve(__dirname, '..'),
-    providersPath: 'app/providers', // relative to `rootPath` (advised)
-    // providersPath: '/home/USER/Code/...', // absolute path (discouraged)
-    //
   };
 
   beforeEach(removeMirketFromRequire);

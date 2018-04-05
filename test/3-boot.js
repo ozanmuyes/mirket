@@ -6,25 +6,12 @@ const Mirket = require('../');
 
 const expect = chai.expect;
 
-describe('Mirket Bootstrap', function() {
-  const config = {
-    rootPath: path.resolve(__dirname, '..'),
-    providersPath: 'app/providers', // relative to `rootPath` (advised)
-    // providersPath: '/home/USER/Code/...', // absolute path (discouraged)
-    //
-  };
-
+describe.skip('3) Mirket Boot', function() {
   let kernel = null;
 
   beforeEach(function() {
-    kernel = new Mirket(config);
-
-    // Register an anonymous service provider
-    kernel.register({
-      register: (container) => {
-        container.foo = 'bar';
-      },
-      boot: () => {},
+    kernel = new Mirket({
+      rootPath: path.resolve(__dirname, '..'),
     });
   });
 
@@ -66,7 +53,7 @@ describe('Mirket Bootstrap', function() {
     });
   });
 
-  // TODO Bootstrap method #5 - other file // seems like bad idea
+  // TODO Boot method #5 - other file // seems like bad idea
   /* kernel.boot('./b'); */
   /**
    * b.js

@@ -7,12 +7,9 @@ const Mirket = require('../');
 const assert = chai.assert;
 const expect = chai.expect;
 
-describe('Mirket Instantiation', function() {
+describe.skip('2) Mirket Instantiation', function() {
   const config = {
     rootPath: path.resolve(__dirname, '..'),
-    providersPath: 'app/providers', // relative to `rootPath` (advised)
-    // providersPath: '/home/USER/Code/...', // absolute path (discouraged)
-    //
   };
 
   it('should instantiate', function() {
