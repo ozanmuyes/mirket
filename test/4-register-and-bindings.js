@@ -54,6 +54,57 @@ describe('Mirket Register and Bindings', function() {
       done();
     });
   });
+
+  it('should clone original while binding instance', function(done) {
+    let str = 'original';
+
+    kernel.register({
+      register: ({ instance }) => {
+        instance('foo', str);
+      },
+    });
+
+    expect(kernel.isBooted).to.be.false;
+
+    kernel.boot().then(() => {
+      expect(kernel.isBooted).to.be.true;
+
+      const foo = kernel['foo']; // eslint-disable-line dot-notation
+      expect(foo).to.eq('original');
+
+      str = 'altered original';
+      expect(foo).to.eq('original');
+
+      done();
+    });
+  });
+
+  it('should freeze binding instance', function(done) {
+    const foo = {
+      message: 'foo',
+    };
+
+    kernel.register({
+      register: ({ instance }) => {
+        instance('foo', foo);
+      },
+    });
+
+    expect(kernel.isBooted).to.be.false;
+
+    kernel.boot().then(() => {
+      expect(kernel.isBooted).to.be.true;
+
+      const resolvedFoo = kernel['foo']; // eslint-disable-line dot-notation
+      expect(resolvedFoo).to.deep.equal(foo);
+
+      kernel.foo.message = 'new foo';
+      expect(resolvedFoo.message).to.eq('foo');
+
+      done();
+    });
+  });
+
   // TODO Write test cases for instance bindings (imperatives; int, string, object, array, etc. but not for function)
 
   it('should resolve singleton binding (object)', function(done) {

@@ -15,6 +15,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+const clone = require('clone');
+
 // Singleton Kernel instance
 global.mirket = {
   defaultConfig: {
@@ -164,23 +166,34 @@ class Kernel {
     // NOTE Do NOT touch instance bindings
     const bindingFns = {
       bind: () => { /* set a factory function on the container */ },
-      singleton: (alias, instance) => {
-        // TODO Check for 'alias' uniqueness
+      singleton: (alias, binding) => {
+        if (inst.container.has('alias')) {
+          throw new Error('Container already has a binding with this alias.');
+        }
 
-        // See https://stackoverflow.com/a/46179203/250453
-        // FIXME Check if shallow clone
-        const clone = { ...instance };
-        Object.defineProperty(clone, 'id', { // TODO Maybe use another name (e.g. 'containerId') to avoid collision
+        const cloned = clone(binding);
+        Object.defineProperty(cloned, 'id', { // TODO Maybe use another name (e.g. 'containerId') to avoid collision
           // No 'configurable', 'enumerable', 'writable' by default
           value: randomValueHex(),
         });
 
-        inst.container.set(alias, clone);
+        inst.container.set(alias, cloned);
 
         return null;
       },
-      instance: (alias, instance) => {
-        inst.container.set(alias, instance);
+      /**
+       * Takes snapshot of an instance (`inst`) (i.e. clones it) and
+       * freezes it (i.e. immutable).
+       * If freezing doesn't wanted use `singleton`
+       * The instance (`inst`) MUST NOT contain circular references
+       */
+      instance: (alias, binding, cloneDepth = Infinity) => {
+        if (inst.container.has('alias')) {
+          throw new Error('Container already has a binding with this alias.');
+        }
+
+        /* inst.container.set(alias, binding); */
+        inst.container.set(alias, Object.freeze(clone(binding, false, cloneDepth)));
 
         return null;
       },
