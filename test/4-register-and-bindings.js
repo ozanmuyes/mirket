@@ -2,6 +2,7 @@ const path = require('path');
 
 const chai = require('chai');
 
+global.mirket.defaultConfig.providersPath = '';
 const Mirket = require('../');
 
 const assert = chai.assert;
@@ -19,10 +20,10 @@ describe('Mirket Register and Bindings', function() {
   });
 
   it('should resolve `undefined` when no registration', function(done) {
-    expect(kernel.isBooted).to.be.false;
+    expect(kernel.hasBooted).to.be.false;
 
     kernel.boot().then(() => {
-      expect(kernel.isBooted).to.be.true;
+      expect(kernel.hasBooted).to.be.true;
 
       const foo = kernel['foo']; // eslint-disable-line dot-notation
       expect(foo).to.eq(undefined);
@@ -43,10 +44,10 @@ describe('Mirket Register and Bindings', function() {
       },
     });
 
-    expect(kernel.isBooted).to.be.false;
+    expect(kernel.hasBooted).to.be.false;
 
     kernel.boot().then(() => {
-      expect(kernel.isBooted).to.be.true;
+      expect(kernel.hasBooted).to.be.true;
 
       const foo = kernel['foo']; // eslint-disable-line dot-notation
       expect(foo).to.eq('bar');
@@ -64,10 +65,10 @@ describe('Mirket Register and Bindings', function() {
       },
     });
 
-    expect(kernel.isBooted).to.be.false;
+    expect(kernel.hasBooted).to.be.false;
 
     kernel.boot().then(() => {
-      expect(kernel.isBooted).to.be.true;
+      expect(kernel.hasBooted).to.be.true;
 
       const foo = kernel['foo']; // eslint-disable-line dot-notation
       expect(foo).to.eq('original');
@@ -90,10 +91,10 @@ describe('Mirket Register and Bindings', function() {
       },
     });
 
-    expect(kernel.isBooted).to.be.false;
+    expect(kernel.hasBooted).to.be.false;
 
     kernel.boot().then(() => {
-      expect(kernel.isBooted).to.be.true;
+      expect(kernel.hasBooted).to.be.true;
 
       const resolvedFoo = kernel['foo']; // eslint-disable-line dot-notation
       expect(resolvedFoo).to.deep.equal(foo);
@@ -120,11 +121,11 @@ describe('Mirket Register and Bindings', function() {
       },
     });
 
-    expect(kernel.isBooted).to.be.false;
+    expect(kernel.hasBooted).to.be.false;
     assert.isUndefined(obj.id, 'Singleton mutates original value while cloning.');
 
     kernel.boot().then(() => {
-      expect(kernel.isBooted).to.be.true;
+      expect(kernel.hasBooted).to.be.true;
 
       const foo = kernel['foo']; // eslint-disable-line dot-notation
       expect(foo).to.eql(obj);
@@ -144,11 +145,11 @@ describe('Mirket Register and Bindings', function() {
       },
     });
 
-    expect(kernel.isBooted).to.be.false;
+    expect(kernel.hasBooted).to.be.false;
     assert.isUndefined(arr.id, 'Singleton mutates original value while cloning.');
 
     kernel.boot().then(() => {
-      expect(kernel.isBooted).to.be.true;
+      expect(kernel.hasBooted).to.be.true;
 
       const foo = kernel['foo']; // eslint-disable-line dot-notation
       expect(foo).to.eql(arr);

@@ -149,6 +149,9 @@ function providerRecordComparator(qd, existing) {
   // TODO Consider this provider's bindings - if binds something prioritize this
 
   // `wantsContainer` effects negatively
+  // TODO Change this to positive effecting since the `container` argument
+  //      will only be used to 'bind' things. And if boot binds something
+  //      it MUST have higher priority.
   //
   if (qd.bootFnInfo.wantsContainer) {
     priorityQd -= 1;

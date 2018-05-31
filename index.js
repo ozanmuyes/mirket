@@ -9,9 +9,9 @@
  * - https://www.keithcirkel.co.uk/metaprogramming-in-es6-symbols/
  */
 
-global.Promise = require('bluebird');
+// WARN Do NOT use any module to replace Promise
+// global.Promise = require('bluebird');
 
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -28,38 +28,32 @@ global.mirket = {
   //
 };
 
-// See https://blog.tompawlak.org/generate-random-values-nodejs-javascript#3-generate-random-values-using-node-js-crypto-module
-const randomValueHex = (len = 32) =>
-  crypto
-    .randomBytes(Math.ceil(len / 2))
-    .toString('hex')
-    .slice(0, len);
-
 class Kernel {
   constructor(config) {
     const argType = typeof config;
 
     switch (argType) {
       case 'undefined':
-      case 'null':
         throw new Error('Configuration object must be given.');
 
       case 'object': {
         if (Array.isArray(config)) {
-          throw new TypeError('Configuration parameter must be either null or object, array given.');
+          throw new TypeError('Configuration parameter must be either undefined or object, array given.');
+        } else if (config === null) {
+          throw new Error('Configuration object cannot be literally null.');
         }
 
         break; // Continue to merge
       }
 
       default:
-        throw new TypeError(`Configuration parameter must be either null or object, ${argType} given.`);
+        throw new TypeError(`Configuration parameter must be either undefined or object, ${argType} given.`);
     }
 
     // Check required configuration here
     //
     if (!config.rootPath || config.rootPath === '') {
-      throw new Error('Project root path must be given.');
+      throw new Error("Project root path ('rootPath') must be given.");
     }
 
     //
@@ -84,9 +78,9 @@ class Kernel {
 
     // Public
     //
-    this.id = randomValueHex();
+    this.id = (new Date()).getTime(); // old `randomValueHex`
     this.container = new Map();
-    this.isBooted = false;
+    this.hasBooted = false;
     //
   }
 
@@ -123,21 +117,31 @@ class Kernel {
 
     // Process providers' path
     //
-    // FIXME Activate below
-    /* if (inst.config.providersPath && typeof inst.config.providersPath === 'string' && inst.config.providersPath !== '') {
+    const instConfig = inst.config;
+    const instProviders = inst.providers;
+
+    if (instConfig.providersPath && typeof instConfig.providersPath === 'string' && instConfig.providersPath !== '') {
       // TODO Also check if the path exists
-      const providersAbsolutePath = path.join(inst.config.rootPath, inst.config.providersPath);
+      const providersAbsolutePath = path.join(instConfig.rootPath, instConfig.providersPath);
       let providerPath = '';
 
-      fs.readdir(providersAbsolutePath) // TODO Use `readdir`s callback
+      fs.readdirSync(providersAbsolutePath) // TODO Use `readdir`s callback
         .forEach((providerFilename) => {
-          if (/[^index|_]\.js$/.test(providerFilename)) {
+          if (/^(?!index|_).*\.js/.test(providerFilename)) {
             providerPath = path.join(providersAbsolutePath, providerFilename);
-            // eslint-disable-next-line global-require, import/no-dynamic-require
-            inst.providers[providerFilename] = require(providerPath);
+            instProviders.push({
+              filename: providerFilename,
+              path: providerPath,
+              // eslint-disable-next-line global-require, import/no-dynamic-require
+              ...require(providerPath),
+            });
+            // instProviders[providerFilename] = require(providerPath);
+            // inst[providerFilename] = require(providerPath);
           }
         });
-    } */
+    } else if (process.env.NODE_ENV !== 'test') {
+      console.warn('Mirket: Providers path wasn\'t specified.');
+    }
 
     // Make an array of register functions via providers
     //
@@ -147,7 +151,7 @@ class Kernel {
         accumulator.push(current.registerFn);
       }
     };
-    inst.providers.reduce(registersReducer, providerRegisterFns);
+    instProviders.reduce(registersReducer, providerRegisterFns);
 
     // Make an array of boot functions via providers
     //
@@ -157,11 +161,12 @@ class Kernel {
         accumulator.push(current.bootFn);
       }
     };
-    inst.providers.reduce(bootsReducer, providerBootFns);
+    instProviders.reduce(bootsReducer, providerBootFns);
 
     // Prepare functions to be passed 'register' functions of providers
     //
-    // NOTE Each singleton MUST have it's unique identifier set upon binding OR see the note written with red pen
+    // NOTE Each singleton MUST have it's unique identifier set upon binding
+    //      OR see the note written with red pen
     // NOTE Each binding MUST have it's unique identifier set upon instantiation
     // NOTE Do NOT touch instance bindings
     const bindingFns = {
@@ -174,7 +179,7 @@ class Kernel {
         const cloned = clone(binding);
         Object.defineProperty(cloned, 'id', { // TODO Maybe use another name (e.g. 'containerId') to avoid collision
           // No 'configurable', 'enumerable', 'writable' by default
-          value: randomValueHex(),
+          value: (new Date()).getTime(), // old `randomValueHex`
         });
 
         inst.container.set(alias, cloned);
@@ -216,7 +221,7 @@ class Kernel {
     //      Resolve (or call callback) with WHAT???
 
     // FIXME Doesn't wait for `providerRegisterFns` and `providerBootFns` to finish
-    inst.isBooted = true;
+    inst.hasBooted = true;
     return Promise.resolve(); // OR call the `callback`
   }
 
@@ -252,8 +257,13 @@ const kernelProxyHandler = {
 
     // Resolve request
     //
-    return target._resolve(property);
+    return target._resolve(property); // eslint-disable-line no-underscore-dangle
   },
+  // NOTE Set provider internally like this;
+  //      On `boot()` at `fs.readdirSync` callback
+  /* set: (target, property, value) => {
+    target.providers.set(property, value);
+  }, */
   //
 };
 

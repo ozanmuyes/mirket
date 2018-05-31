@@ -8,6 +8,9 @@ module.exports = {
     es6: true,
     mocha: true,
   },
+  globals: {
+    make: true,
+  },
   extends: 'airbnb-base',
   plugins: [
     'mocha',

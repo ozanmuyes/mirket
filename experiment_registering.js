@@ -87,6 +87,10 @@ function register(provider, filename = '') {
 
   // Call `register`
   if (provider.register && typeof provider.register === 'function') {
+    if (provider.register.constructor.name === 'AsyncFunction') {
+      throw new Error(`Register method of the provider ('${provider.name}') cannot be asynchronous.`);
+    }
+
     provider.register.call(null, {
       instance: (alias, inst) => {
         providerRecord.bindings[alias] = { bindType: 'instance', alias };
@@ -143,27 +147,85 @@ function register(provider, filename = '') {
 }
 
 async function boot() {
-  const queue = new TinyQueue([], (a, b) => {
-    let aScore = 0;
-    let bScore = 0;
+  const q = new TinyQueue([], (n, x) => { // 'n': new, 'x': existing
+    let nScore = 0;
+    let xScore = 0;
 
-    // TODO
+    // TODO See 'experiment_boot-ordering.js'
+    if (n.wantsToBeDeferred) {
+      nScore += 1;
+    }
+    if (x.wantsToBeDeferred) {
+      xScore += 1;
+    }
 
-    return (aScore - bScore);
+    return (nScore - xScore);
   });
 
-  // TODO Pop
-  if (provider.hasBootFn) {
-    if (!provider.bootFn.hasInjectionParam && provider.bootFn.wantsContainer) {
-      //
+  providers.forEach((provider) => {
+    if (provider.hasBootFn) {
+      q.push(provider);
+
+      if (!provider.bootFn.hasInjectionParam && provider.bootFn.wantsContainer) {
+        //
+      }
     }
+  });
+
+  // TODO Iterate through the `q` and call the boot functions
+  const container = { // NOTE This will be given to `boot()` of the provider when needed
+    singleton: () => {
+      // TODO
+    },
+    // TODO Add other methods to the `container`
+  };
+
+  const qa = [];
+  while (q.length) {
+    qa.push(q.pop());
   }
+
+  let provider;
+  for (let i = 0; i < qa.length; i += 1) {
+    provider = qa[i];
+    const bootParams = [];
+    if (provider.bootFn.hasInjectionParam) { // FIXME `resolve` actual injections (iterate the `provider.bootFn.injections`)
+      /* bootParams.push({
+        aliasFoo: { message: 'foo' },
+        aliasBar: { message: 'bar' },
+      }); */
+      const injections = {};
+      provider.bootFn.injections.forEach((alias) => {
+        injections[alias] = resolve(alias);
+      });
+      bootParams.push(injections);
+    }
+    if (provider.bootFn.wantsContainer) {
+      bootParams.push(container);
+    }
+
+    if (provider.bootFn.isAsync) {
+      await provider.bootFn.fn.apply(null, bootParams);
+    } else {
+      provider.bootFn.fn.apply(null, bootParams);
+    }
+  };
 
   return Promise.resolve();
 }
 
-function resolve() {
+function resolve(alias) { // from the kernel (container)
   // TODO Cache etc.
+  const resolved = container.get(alias);
+
+  if (resolved.bindType === 'singleton') {
+    if (resolved.valueType === 'function') {
+      // TODO Figure out what to do if the value is async OR better yet can be async?
+      // TODO Call the function and cache the result
+    } else {
+      return resolved.value;
+    }
+  }
 }
 
 // bar
@@ -215,7 +277,8 @@ const provider4 = {
     instance('aliasBaz', obj);
   },
   boot: async (container) => {
-    const message = await lateResolver('bar');
+    const message = await lateResolver('bar', 1000);
+    console.log(`provider4: ${message}`);
 
     const obj = {
       message,
@@ -228,7 +291,17 @@ const provider4 = {
 const provider5 = {
   name: 'provider5',
   boot: ({ foo: aliasFoo }) => {
-    console.log(foo); // > foo
+    console.log('provider5');
+    //console.log(foo); // > foo
+  },
+};
+
+const provider6 = {
+  name: 'provider6',
+  register: async ({ instance }) => {
+    const message = await lateResolver('bar');
+
+    instance('aliasBar', message);
   },
 };
 
@@ -244,8 +317,10 @@ const provider5 = {
  * //
  */
 
+console.log(`register STA: ${(new Date()).getTime()}`);
 // TODO Manually `register` the providers below
 register(provider1);
+// register(provider6); // NOTE This will throw an error due to async `register()`
 register(provider2);
 register(provider3);
 register(provider4);
@@ -255,5 +330,11 @@ register(provider5);
 // baz
 //
 boot().then(() => {
+  console.log(`FIN: ${(new Date()).getTime()}`);
   console.log('Application booted, and should started listening by now.');
 });
+console.log(`STA: ${(new Date()).getTime()}`);
+
+/* console.log((new Date()).getTime());
+boot();
+console.log((new Date()).getTime()); */
