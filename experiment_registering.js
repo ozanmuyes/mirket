@@ -214,6 +214,7 @@ async function boot() {
   return Promise.resolve();
 }
 
+/** @deprecated */
 function resolve(alias) { // from the kernel (container)
   // TODO Cache etc.
   const resolved = container.get(alias);

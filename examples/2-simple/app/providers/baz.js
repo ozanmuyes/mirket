@@ -1,5 +1,6 @@
 module.exports = {
+  defer: true,
   boot() {
-    console.log('hey');
+    console.log('this ("baz") will be the 2nd to the last provider');
   },
 };

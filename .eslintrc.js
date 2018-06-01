@@ -53,9 +53,9 @@ module.exports = {
       },
     },
     {
-      files: ['database/factories/*.js'],
+      files: ['examples/**/providers/*.js'],
       rules: {
-        'import/no-extraneous-dependencies': ['error', {'optionalDependencies': false}]
+        'global-require': 0
       },
     },
   ],

@@ -1,3 +1,9 @@
-const foo = make('aliasFoo');
+const debug = make('debug', 'app');
+const session = make('session');
 
-console.log(foo);
+debug('started');
+
+session.incrTimesRan();
+debug(`app was ran ${session.getTimesRan} times (incl. this).`);
+
+debug('finished');

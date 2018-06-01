@@ -26,7 +26,7 @@ mirket.bind('bindingFoo', message => new Foo(message));
 /** @type Foo */
 const bfoo1 = mirket.make('bindingFoo');
 /** @type Foo */
-const bfoo2 = mirket.make('bindingFoo', ['Hello from bfoo2']);
+const bfoo2 = mirket.make('bindingFoo', 'Hello from bfoo2');
 
 assert(bfoo1.id !== bfoo2.id);
 assert(bfoo1.message === `${bfoo1.type}#${bfoo1.id}`);
@@ -38,9 +38,9 @@ assert(bfoo2.message === 'Hello from bfoo2');
 mirket.singleton('singletonFoo', message => new Foo(message));
 
 /** @type Foo */
-const sfoo1 = mirket.make('singletonFoo', ['making for the first time']);
+const sfoo1 = mirket.make('singletonFoo', 'making for the first time');
 /** @type Foo */
-const sfoo2 = mirket.make('singletonFoo', ['making for the second time']);
+const sfoo2 = mirket.make('singletonFoo', 'making for the second time');
 
 assert(sfoo1.id === sfoo2.id);
 assert(sfoo1.message === 'making for the first time');
@@ -66,8 +66,9 @@ class Bar {
   constructor(/** @type Foo */ foo) {
     this.id = getRandomInt();
     this.type = 'Bar';
-    this.foo = foo;
     this.message = foo.message;
+    /** @type Foo */
+    this.foo = foo;
   }
 }
 
@@ -103,4 +104,53 @@ const sbar1 = mirket.make('singletonBar');
 const sbar2 = mirket.make('singletonBar');
 
 assert(sbar1.id === sbar2.id);
-assert(sbar1.foo.id !== sbar2.foo.id); // FIXME Figure out; is it '!==' or '==='
+// NOTE Even though 'bindingFoo' is not a singleton, since
+//      'singletonBar' is singleton, each `make` result
+//      has the same instance of 'bindingFoo'
+assert(sbar1.foo.id === sbar2.foo.id);
+
+
+// Baz
+//
+class Baz {
+  constructor({ foo, singletonBar: bar }, message = null, id = null) {
+    this.id = (id || getRandomInt());
+    this.type = 'Baz';
+    this.message = (message || `${foo.message} ${bar.message}`);
+    /** @type Foo */
+    this.foo = foo;
+    /** @type Bar */
+    this.bar = bar;
+  }
+}
+
+// bind
+//
+mirket.bind('bindingBaz', ({ foo, singletonBar }) => new Baz({ foo, singletonBar }));
+
+/** @type Baz */
+const bbaz1 = mirket.make('bindingBaz');
+
+assert(bbaz1.message === `${bbaz1.foo.message} ${bbaz1.bar.message}`);
+
+
+mirket.bind('bindingBazClazz', Baz);
+
+/** @type Baz */
+const bbazc1 = mirket.make('bindingBazClazz');
+/** @type Baz */
+const bbazc2 = mirket.make('bindingBazClazz', 'can bind classes too');
+/** @type Baz */
+const bbazc3 = mirket.make('bindingBazClazz', null, 35);
+/** @type Baz */
+const bbazc4 = mirket.make('bindingBazClazz', { id: 35 });
+
+assert(bbazc1.message === `${bbazc1.foo.message} ${bbazc1.bar.message}`);
+assert(bbazc2.message === 'can bind classes too');
+assert(bbazc3.message === `${bbazc3.foo.message} ${bbazc3.bar.message}`);
+assert(bbazc3.id === 35);
+assert(bbazc4.message === `${bbazc4.foo.message} ${bbazc4.bar.message}`);
+assert(bbazc4.id === 35);
+
+
+console.log('Everything is OK');
