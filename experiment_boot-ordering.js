@@ -12,7 +12,7 @@ const SortedArray = require('sorted-array');
 
 /**
  * @typedef {Object} Binding
- * @property {string} type
+ * @property {string} bindType
  *           Indicates how this binding was bound to the container. Either 'bind',
  *           'singleton' or 'instance'.
  * @property {string} alias
@@ -59,7 +59,7 @@ const SortedArray = require('sorted-array');
  *           binds to the container.
  * @property {boolean} hasBootFn
  *           Indicates whether boot function defined by the provider or not.
- * @property {BootFnInformation} bootFnInfo
+ * @property {BootFnInformation} bootFn
  *           Information about the boot function of the provider.
  */
 
@@ -96,7 +96,7 @@ function resolve(aliases) {
 
 /**
  * Compares two provider records considering various aspects
- * to decide thier priorities as each other.
+ * to decide their priorities as each other.
  *
  * @param {ProviderRecord} qd Queued item
  * @param {ProviderRecord} existing Existing item
@@ -129,17 +129,17 @@ function providerRecordComparator(qd, existing) {
 
   // `hasInjectionParam` effects negatively
   //
-  if (qd.bootFnInfo.hasInjectionParam) {
+  if (qd.bootFn.hasInjectionParam) {
     priorityQd -= 2;
   }
-  if (existing.bootFnInfo.hasInjectionParam) {
+  if (existing.bootFn.hasInjectionParam) {
     priorityExisting -= 2;
   }
 
-  if (qd.bootFnInfo.hasInjectionParam && existing.bootFnInfo.hasInjectionParam) {
-    if (qd.bootFnInfo.injections.length < existing.bootFnInfo.injections.length) {
+  if (qd.bootFn.hasInjectionParam && existing.bootFn.hasInjectionParam) {
+    if (qd.bootFn.injections.length < existing.bootFn.injections.length) {
       priorityQd += 1;
-    } else if (qd.bootFnInfo.injections.length > existing.bootFnInfo.injections.length) {
+    } else if (qd.bootFn.injections.length > existing.bootFn.injections.length) {
       priorityExisting += 1;
     }
     // no need to take any action - they have same amount of injections, BUT;
@@ -153,10 +153,10 @@ function providerRecordComparator(qd, existing) {
   //      will only be used to 'bind' things. And if boot binds something
   //      it MUST have higher priority.
   //
-  if (qd.bootFnInfo.wantsContainer) {
+  if (qd.bootFn.wantsContainer) {
     priorityQd -= 1;
   }
-  if (existing.bootFnInfo.wantsContainer) {
+  if (existing.bootFn.wantsContainer) {
     priorityExisting -= 1;
   }
 
@@ -184,7 +184,7 @@ const providerRecord0 = {
   wantsToBeDeferred: true,
   bindings: [],
   hasBootFn: false,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: true,
@@ -200,7 +200,7 @@ const providerRecord1 = {
   wantsToBeDeferred: false, // was true
   bindings: [],
   hasBootFn: true,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: true,
@@ -218,7 +218,7 @@ const providerRecord2 = {
   wantsToBeDeferred: false,
   bindings: [],
   hasBootFn: true,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: false,
@@ -236,7 +236,7 @@ const providerRecord3 = {
   wantsToBeDeferred: true,
   bindings: [],
   hasBootFn: true,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: false,
@@ -252,9 +252,9 @@ const providerRecord3 = {
 const providerRecord32 = {
   name: 'providerRecord32', // NOTE Debug purposes only
   wantsToBeDeferred: true,
-  bindings: [{ type: 'instance', alias: 'aliasBaz' }],
+  bindings: [{ bindType: 'instance', alias: 'aliasBaz' }],
   hasBootFn: true,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: false,
@@ -274,7 +274,7 @@ const providerRecord4 = {
   wantsToBeDeferred: false,
   bindings: [],
   hasBootFn: true,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: false,
@@ -292,7 +292,7 @@ const providerRecord5 = {
   wantsToBeDeferred: true,
   bindings: [],
   hasBootFn: true,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: true,
@@ -310,7 +310,7 @@ const providerRecord6 = {
   wantsToBeDeferred: true,
   bindings: [],
   hasBootFn: true,
-  bootFnInfo: {
+  bootFn: {
     parsed: null,
     isAsync: false,
     hasInjectionParam: true,
@@ -358,28 +358,28 @@ function bootProvider(providerRecord) {
   //      put the current record back.
 
   /* eslint-disable no-lonely-if */
-  if (providerRecord.bootFnInfo.hasInjectionParam) {
-    if (hasAliasBound(providerRecord.bootFnInfo.injections)) {
-      if (providerRecord.bootFnInfo.wantsContainer) {
+  if (providerRecord.bootFn.hasInjectionParam) {
+    if (hasAliasBound(providerRecord.bootFn.injections)) {
+      if (providerRecord.bootFn.wantsContainer) {
         // FIXME Instead of sending `_container` send `{ instance: fn, singleton: fn, bind: fn }`
         //       to keep track of what that bootFn has bind, also no `resolve` fn will be passed
         //       in favour of injection.
-        providerRecord.bootFnInfo.fn.call(null, resolve(providerRecord.bootFnInfo.injections), _container);
+        providerRecord.bootFn.fn.call(null, resolve(providerRecord.bootFn.injections), _container);
       } else {
-        providerRecord.bootFnInfo.fn.call(null, resolve(providerRecord.bootFnInfo.injections));
+        providerRecord.bootFn.fn.call(null, resolve(providerRecord.bootFn.injections));
       }
     } else {
       postponeds.push(providerRecord);
-      console.log(`${providerRecord.name} has been postponed due to unbind alias(es).`);
+      console.log(`${providerRecord.name} has been postponed due to unbound alias(es) (one of '${providerRecord.bootFn.injections.join("', '")}').`);
     }
   } else {
-    if (providerRecord.bootFnInfo.wantsContainer) {
+    if (providerRecord.bootFn.wantsContainer) {
       // FIXME Instead of sending `_container` send `{ instance: fn, singleton: fn, bind: fn }`
       //       to keep track of what that bootFn has bind, also no `resolve` fn will be passed
       //       in favour of injection.
-      providerRecord.bootFnInfo.fn.call(null, _container);
+      providerRecord.bootFn.fn.call(null, _container);
     } else {
-      providerRecord.bootFnInfo.fn.call(null);
+      providerRecord.bootFn.fn.call(null);
     }
   }
   /* eslint-enable no-lonely-if */

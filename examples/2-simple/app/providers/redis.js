@@ -1,10 +1,10 @@
 module.exports = {
   disable: false,
-  boot({ config }, { singleton }) {
-    const redis = require('redis-mock');
+  boot({ config }, { instance }) {
+    const redis = require('../../redis-mock');
     const redisClient = redis.createClient(config.redis);
 
-    singleton('redisClient', redisClient);
+    instance('redisClient', redisClient);
 
     // TODO Set `boot()`s `this` as kernel (proxy) but only allow `static` keyword.
     //      If omitted (e.g. `this.x`) take action as if it was called like

@@ -14,7 +14,7 @@ class Session {
 }
 
 module.exports = {
-  register({ singleton, redisClient }) {
+  boot({ redisClient }, { singleton }) {
     singleton('session', () => new Session(redisClient));
     // TODO Can we make it this way rather than the above
     // singleton('session', Session, redisClient);
