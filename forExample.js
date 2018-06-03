@@ -9,6 +9,9 @@ const SortedArray = require('sorted-array');
 const defaultConfig = {
   // rootPath: undefined,
   providersPath: 'app/providers',
+  kernelNameOnGlobal: 'kernel',
+  autoRegisterProviders: true,
+  setOnBoxEvenIfSet: false,
   //
 };
 
@@ -234,13 +237,7 @@ class Mirket {
     this.config = Object.assign({}, defaultConfig, config);
     this.providers = [];
     this.container = new Map();
-    //
-
-    if (this.config.providersPath !== '') {
-      // TODO Auto-register service providers
-      this.registerProviders();
-    }
-
+    this.box = new Map(); // to store app specific settings - user land
     //
   }
 
@@ -596,6 +593,81 @@ class Mirket {
 
     return (postponeds.length === 0);
   }
+
+  set(kvps) {
+    // FIXME Refactor below, it looks weird
+    if (typeof kvps !== 'object') {
+      throw new Error('Key value pair(s) to be set on the kernel must be object of type.');
+    } else if (kvps === null) {
+      throw new Error('Key value pair(s) to be set on the kernel must not be null.');
+    } else if (Array.isArray(kvps)) {
+      throw new Error('Key value pair(s) to be set on the kernel must be object of type instead of array.');
+    }
+
+    Object.keys(kvps).forEach((k) => {
+      if (this.config.setOnBoxEvenIfSet === true) {
+        this.box.set(k, kvps[k]);
+      } else if (!this.box.has(k)) {
+        this.box.set(k, kvps[k]);
+      }
+    });
+  }
 }
 
-module.exports = userConfig => new Mirket(userConfig);
+module.exports = (userConfig) => {
+  const singleton = new Mirket(userConfig);
+
+  const proxyHandler = {
+    get(/** @type Mirket */ target, property) {
+      // First of all try to match a method name
+      // TODO Add public methods here upon added to Mirket class
+      if (['bind', 'singleton', 'instance', 'make', 'registerProviders', 'boot', 'set'].includes(property)) {
+        return target[property].bind(target);
+      }
+
+      if (target.box.has(property)) {
+        return target.box.get(property);
+      }
+
+      if (target.container.has(property)) {
+        return target.make(property);
+      }
+
+      // TODO Is there any other place to look at to `get` anything out of the kernel?
+
+      return null;
+    },
+    set(/** @type Mirket */ target, property, value) {
+      const valueType = typeof value;
+
+      if (
+        valueType === 'undefined' ||
+        (valueType === 'object' && value === null)
+      ) {
+        return;
+      } else if (valueType === 'function') { // FIXME This check won't be doing in the `set` method of the class
+        throw new Error("Cannot set a function on the kernel. If your intention is to bind something use either 'bind', 'singleton' or 'instance'.");
+      }
+
+      // FIXME Refactor below, it looks weird
+      //       OR better yet use `set` method of the class
+      if (target.config.setOnBoxEvenIfSet === true) {
+        target.box.set(property, value);
+      } else if (!target.box.has(property)) {
+        target.box.set(property, value);
+      }
+    },
+  };
+
+  // FIXME Proxy creation and assignment to global SHOULD be done after `boot()`
+  const singletonProxy = new Proxy(singleton, proxyHandler);
+
+  global[singleton.config.kernelNameOnGlobal] = singletonProxy;
+  global.make = singleton.make.bind(singleton);
+
+  if (singleton.config.providersPath !== '' && singleton.config.autoRegisterProviders === true) {
+    singleton.registerProviders();
+  }
+
+  return singletonProxy;
+};
