@@ -1,18 +1,17 @@
-/* eslint-disable global-require */
-
 const mirket = require('../../forExample')({
   rootPath: __dirname,
   providersPath: 'app/providers',
 });
 
+// FIXME Delete the line below after combining 'forExample' and 'index'
 global.kernel = mirket;
 
 /* const debug = mirket.make('debug', 'index');
 debug('fin'); */
 
-if (mirket.boot()) {
-  require('./app');
-}
+mirket.boot();
+
+require('./app');
 
 // ----- STA - OVERRIDE `require` -----
 /* const Module = require('module');

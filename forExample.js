@@ -38,7 +38,7 @@ function parseBindingFn(fn) {
     isConstructor: false,
     hasInjectionParam: false,
     injections: [],
-    acceptArgs: false,
+    acceptsArgs: false,
     args: [], // argument names (positional, by index)
   };
 
@@ -58,8 +58,10 @@ function parseBindingFn(fn) {
     }
 
     fnInfo.isConstructor = true;
-  } else {
+  } else if (pb0.expression) {
     targetFn = pb0.expression;
+  } else {
+    targetFn = pb0;
   }
 
   if (targetFn.params.length > 0) {
@@ -71,11 +73,11 @@ function parseBindingFn(fn) {
       });
 
       if (targetFn.params.length > 1) {
-        fnInfo.acceptArgs = true;
+        fnInfo.acceptsArgs = true;
         fnInfo.args = getParamsPositionally(targetFn.params, 1);
       }
     } else {
-      fnInfo.acceptArgs = true;
+      fnInfo.acceptsArgs = true;
       fnInfo.args = getParamsPositionally(targetFn.params);
     }
   }
@@ -108,9 +110,38 @@ function createPosargs(argsObj, /** @type Array */ argsPositions) {
     if (Object.prototype.hasOwnProperty.call(argsObj, name)) {
       result.push(argsObj[name]);
     } else {
-      result.push(null);
+      result.push(null); // TODO Figure out `null` or `undefined`
     }
   });
+
+  /* Check if the `argsObj` is named or not, that is it might be
+   * the one and only argument of the function which is the type
+   * of object. E.g.
+   * `
+   *  // app/providers/router.js
+   *  const router = require('find-my-way');
+   *  singleton('router', router);
+   *
+   *  // app/index.js
+   *  const router = make('router', {
+   *    ignoreTrailingSlash: true,
+   *    // ...
+   *  });
+   * `
+   * In the example the line in the 'app/index.js' didn't read
+   * `
+   *  const router = make('router', {
+   *    opts: {                       <-- here,
+   *      ignoreTrailingSlash: true,
+   *      // ...
+   *    },                            <-- and here omitted
+   *  });
+   * `
+   */
+  // FIXME Here will work only if one parameter was passed and it is object of type
+  if (result.length === 1 && result[0] === null && argsPositions.length === 1) {
+    result[0] = argsObj;
+  }
 
   return result;
 }
@@ -242,9 +273,10 @@ class Mirket {
   }
 
   instance(alias, inst) {
-    if (typeof inst === 'function') {
-      throw new Error('Cannot bind a function with \'instance\', use \'instance\' or \'singleton\' instead.');
-    }
+    // [KAOS:STRCTLACTNM]
+    /* if (typeof inst === 'function') {
+      throw new Error('Cannot bind a function with \'instance\', use \'bind\' or \'singleton\' instead.');
+    } */
 
     this.container.set(alias, {
       isSingleton: false,
@@ -326,6 +358,10 @@ class Mirket {
 
   _registerProvider(provider, filename = '') {
     // NOTE From 'experiment_registering.js::register'
+
+    if (provider.disable && provider.disable === true) {
+      return;
+    }
 
     const providerRecord = {
       type: (filename === '' ? 'anonymous' : 'file'),
@@ -463,8 +499,10 @@ class Mirket {
       // TODO If some will be omitted depending on any filename condition
       //      do it here (i.e. regex pattern matching, etc.)
 
-      // eslint-disable-next-line global-require, import/no-dynamic-require
-      this._registerProvider(require(path.join(this.config.rootPath, this.config.providersPath, providerFilename)), path.parse(providerFilename).name);
+      if (providerFilename[0] !== '_') {
+        // eslint-disable-next-line global-require, import/no-dynamic-require
+        this._registerProvider(require(path.join(this.config.rootPath, this.config.providersPath, providerFilename)), path.parse(providerFilename).name);
+      }
     });
 
     /* eslint-enable max-len */
