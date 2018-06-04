@@ -7,9 +7,10 @@ const esprima = require('esprima');
 const SortedArray = require('sorted-array');
 
 const defaultConfig = {
-  // rootPath: undefined,
+  // rootPath: undefined, // Absolute path of project root
   providersPath: 'app/providers',
   kernelNameOnGlobal: 'kernel',
+  postponedsMaxPassCount: 3,
   autoRegisterProviders: true,
   setOnBoxEvenIfSet: false,
   //
@@ -37,6 +38,9 @@ function getParamsPositionally(params, startFrom = 0) {
 }
 
 function parseBindingFn(fn) {
+  // TODO Consider adding support for `foo({ bar, baz } = { ... })
+  //                                                    ^^^
+
   const fnInfo = {
     isConstructor: false,
     hasInjectionParam: false,
@@ -232,12 +236,62 @@ function providerRecordComparator(qd, existing) {
   return 1;
 }
 
+function getCallerFile() {
+  const originalFunc = Error.prepareStackTrace;
+
+  let callerFile;
+  try {
+    const err = new Error();
+
+    // eslint-disable-next-line func-names
+    Error.prepareStackTrace = function (_, stack) { return stack; };
+
+    const currentFile = err.stack.shift().getFileName();
+
+    while (err.stack.length) {
+      callerFile = err.stack.shift().getFileName();
+
+      if (currentFile !== callerFile) {
+        break;
+      }
+    }
+  } catch (e) {
+    //
+  }
+
+  Error.prepareStackTrace = originalFunc;
+
+  return callerFile;
+}
+
 class Mirket {
   constructor(config) {
+    if (typeof config.rootPath !== 'string' || !path.isAbsolute(config.rootPath)) {
+      throw new Error('Root path must be set to an absolute path pointing to the project root on the filesystem.');
+    }
+
     this.config = Object.assign({}, defaultConfig, config);
     this.providers = [];
     this.container = new Map();
     this.box = new Map(); // to store app specific settings - user land
+    this.pathsProxy = new Proxy(new Map([['root', this.config.rootPath]]), {
+      get(/** @type Map */ target, property) {
+        return target.get(property);
+      },
+      set(/** @type Map */ target, property, value) {
+        const processedPath = value.trim().replace(/\/+$/, '');
+
+        // Convert given path to absolute path and store that absolute path
+        //
+        if (processedPath[0] === '.') { // relative to caller file
+          target.set(property, path.resolve(path.dirname(getCallerFile()), processedPath));
+        } else if (processedPath[0] === '/') { // absolute path
+          target.set(property, processedPath);
+        } else { // relative to project root
+          target.set(property, path.resolve(target.get('root'), processedPath));
+        }
+      },
+    });
     //
   }
 
@@ -269,11 +323,11 @@ class Mirket {
     this._bind(alias, fn, true);
   }
 
-  instance(alias, inst) {
+  instance(alias, inst, fromProviderBootFn = false) {
     // [KAOS:STRCTLACTNM]
-    /* if (typeof inst === 'function') {
+    if (fromProviderBootFn === false && typeof inst === 'function') {
       throw new Error('Cannot bind a function with \'instance\', use \'bind\' or \'singleton\' instead.');
-    } */
+    }
 
     this.container.set(alias, {
       isSingleton: false,
@@ -434,9 +488,7 @@ class Mirket {
       // NOTE Here we say this is a proper function to Esprima
       //      since it throws error if the function string like;
       //      `boot() { ... }`
-      // TODO Try 'tolerant' config, see http://esprima.readthedocs.io/en/latest/syntactic-analysis.html
       let bootFnStr = provider.boot.toString();
-      /* if (/^(\w+)\(([\w,\s]*)\)\s{0,1}\{(?!\w+)/.test(bootFnStr)) { */
       if (/^(\w+)\(([\w,\s{}:]*)\)\s{0,1}\{(?!\w+)/.test(bootFnStr)) {
         bootFnStr = `function ${bootFnStr}`;
       }
@@ -451,15 +503,40 @@ class Mirket {
       if (pb0.params.length > 0) {
         switch (pb0.params[0].type) {
           case 'ObjectPattern': {
-            providerRecord.bootFn.hasInjectionParam = true;
+            // First argument is defined as `{ ... }`
 
-            pb0.params[0].properties.forEach((injection) => {
-              providerRecord.bootFn.injections.push(injection.key.name);
+            // Extract property names
+            //
+            const propertyNames = pb0.params[0].properties.map((property) => {
+              // TODO Figure out the checks below is really necessary - if not simplify this arrow function
+              if (property.computed) {
+                throw new Error(`Computed property names (${property.key.name}) are not supported.`);
+              }
+              if (property.method) {
+                throw new Error(`Methods (${property.key.name}) are not supported.`);
+              }
+
+              return property.key.name;
             });
+
+            // See https://stackoverflow.com/a/1885569/250453
+            const containerLikeIntersection = ['bind', 'singleton', 'instance'].filter(value => propertyNames.indexOf(value) !== -1);
+
+            if (containerLikeIntersection.length > 0) {
+              // NOTE Just one container-related method name (e.g. 'bind', 'singleton', 'instance')
+              //      is enough to say that it want the container.
+              providerRecord.bootFn.wantsContainer = true;
+
+              // TODO Figure out what to do with others?
+            } else {
+              providerRecord.bootFn.hasInjectionParam = true;
+              providerRecord.bootFn.injections.push(...propertyNames);
+            }
 
             break;
           }
 
+          // TODO Remove this obsolete case
           case 'Identifier': {
             if (pb0.params[0].name === 'container') {
               providerRecord.bootFn.wantsContainer = true;
@@ -522,38 +599,33 @@ class Mirket {
     //      If cannot resolve "all of them" then
     //      put the current record back.
 
-    /* eslint-disable no-lonely-if */
     if (providerRecord.bootFn.hasInjectionParam) {
       if (this._hasAliasesBound(providerRecord.bootFn.injections)) {
         if (providerRecord.bootFn.wantsContainer) {
-          // FIXME Instead of sending `_container` send `{ instance: fn, singleton: fn, bind: fn }`
-          //       to keep track of what that bootFn has bind, also no `resolve` fn will be passed
-          //       in favour of injection.
           providerRecord.bootFn.fn.call(null, this._makeMany(providerRecord.bootFn.injections), {
             bind: this.bind.bind(this),
             singleton: this.singleton.bind(this),
-            instance: this.instance.bind(this),
+            // instance: this.instance.bind(this),
+            instance: (alias, inst) => { this.instance.call(this, alias, inst, true); },
           });
         } else {
           providerRecord.bootFn.fn.call(null, this._makeMany(providerRecord.bootFn.injections));
         }
       } else {
-        console.log(`${providerRecord.name} has been postponed due to unbound alias(es) (one of '${providerRecord.bootFn.injections.filter(name => !(['bind', 'singleton', 'instance'].includes(name))).join("', '")}').`);
-        return false; // this one to be 'postponed'
+        return false; // this provider to be 'postponed'
       }
+    } else if (providerRecord.bootFn.wantsContainer) {
+      providerRecord.bootFn.fn.call(null, {
+        bind: this.bind.bind(this),
+        singleton: this.singleton.bind(this),
+        // instance: this.instance.bind(this),
+        instance: (alias, inst) => { this.instance.call(this, alias, inst, true); },
+      });
     } else {
-      if (providerRecord.bootFn.wantsContainer) {
-        // FIXME Instead of sending `_container` send `{ instance: fn, singleton: fn, bind: fn }`
-        //       to keep track of what that bootFn has bind, also no `resolve` fn will be passed
-        //       in favour of injection.
-        providerRecord.bootFn.fn.call(null, this.container);
-      } else {
-        providerRecord.bootFn.fn.call(null);
-      }
+      providerRecord.bootFn.fn.call(null);
     }
-    /* eslint-enable no-lonely-if */
 
-    return true; // the provider booted successfully
+    return true; // this provider booted successfully
   }
 
   // Synchronous (blocking)
@@ -571,10 +643,9 @@ class Mirket {
     });
 
     let postponedsPassCount = 0;
-    const postponedsMaxPassCount = 3;
 
     while (postponeds.length > 0) {
-      if (postponedsPassCount === postponedsMaxPassCount) {
+      if (postponedsPassCount === this.config.postponedsMaxPassCount) {
         throw new Error('Maximum pass count has been reached for postponed providers. Boot failed.');
       }
       postponedsPassCount += 1;
@@ -625,6 +696,10 @@ module.exports = (userConfig) => {
         return target[property].bind(target);
       }
 
+      if (property === 'paths') {
+        return target.pathsProxy;
+      }
+
       if (target.box.has(property)) {
         return target.box.get(property);
       }
@@ -638,6 +713,20 @@ module.exports = (userConfig) => {
       return null;
     },
     set(/** @type Mirket */ target, property, value) {
+      // If executing `kernel.paths = { ... }`
+      if (property === 'paths' && (typeof value === 'object' && !Array.isArray(value))) {
+        const callerFile = getCallerFile(); // NOTE This MUST be gathered here
+
+        Object.keys(value).forEach((pathKey) => {
+          // eslint-disable-next-line no-param-reassign
+          target.pathsProxy[pathKey] = (value[pathKey][0] === '.')
+            ? path.resolve(path.dirname(callerFile), value[pathKey])
+            : value[pathKey];
+        });
+
+        return;
+      }
+
       const valueType = typeof value;
 
       if (
