@@ -465,7 +465,7 @@ class Mirket {
           providerRecord.hasBindings = true;
           providerRecord.bindings[alias] = { bindType: 'instance', alias };
 
-          this.instance.call(this, alias, inst);
+          this.instance.call(this, alias, inst, true);
         },
       };
       const bindFnsProxyHandler = {
@@ -745,6 +745,9 @@ module.exports = (userConfig) => {
       } else if (!target.box.has(property)) {
         target.box.set(property, value);
       }
+    },
+    has(/** @type Mirket */ target, property) {
+      return target.container.has(property);
     },
   };
 
