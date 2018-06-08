@@ -7,12 +7,21 @@ const esprima = require('esprima');
 const SortedArray = require('sorted-array');
 
 const defaultConfig = {
-  // rootPath: undefined, // Absolute path of project root
+  // rootPath: undefined, // Absolute path of project root - MUST be defined
+  // envPrefix: undefined, // Prefix for env vars - MUST be defined
   providersPath: 'app/providers',
   kernelNameOnGlobal: 'kernel',
   postponedsMaxPassCount: 3,
   autoRegisterProviders: true,
   setOnBoxEvenIfSet: false,
+  //
+};
+
+// FIXME Accept this (defaults) via `config` (see Mirket's ctor)
+// NOTE All values MUST be type of string
+const defaultAppEnv = {
+  host: 'localhost',
+  port: '3000',
   //
 };
 
@@ -269,6 +278,10 @@ class Mirket {
     if (typeof config.rootPath !== 'string' || !path.isAbsolute(config.rootPath)) {
       throw new Error('Root path must be set to an absolute path pointing to the project root on the filesystem.');
     }
+    // FIXME Maybe there will be no envvars for the app, thus envPrefix?
+    if (typeof config.envPrefix !== 'string' || config.envPrefix === '') {
+      throw new Error('Prefix for environment variables must be set.');
+    }
 
     this.config = Object.assign({}, defaultConfig, config);
     this.providers = [];
@@ -279,6 +292,10 @@ class Mirket {
         return target.get(property);
       },
       set(/** @type Map */ target, property, value) {
+        if (property === 'root') { // TODO Test this
+          throw new Error("Cannot change the 'root' path on the kernel.");
+        }
+
         const processedPath = value.trim().replace(/\/+$/, '');
 
         // Convert given path to absolute path and store that absolute path
@@ -293,6 +310,21 @@ class Mirket {
       },
     });
     //
+
+    this.gatherEnv(); // Populates `this.env`
+  }
+
+  gatherEnv() {
+    const appEnv = { ...defaultAppEnv };
+    const configEnvPrefixLen = this.config.envPrefix.length;
+    Object.keys(process.env)
+      .filter(name => name.startsWith(this.config.envPrefix))
+      .forEach((name) => {
+        // appEnv[name.substring(configEnvPrefixLen)] = process.env[name];
+        appEnv[name.substring(configEnvPrefixLen).toLocaleLowerCase()] = process.env[name];
+      });
+
+    this.instance('env', Object.freeze(appEnv));
   }
 
   _bind(alias, fn, isSingleton = false) {
@@ -519,6 +551,7 @@ class Mirket {
               return property.key.name;
             });
 
+            // FIXME Manual update required here to sustain consistency
             // See https://stackoverflow.com/a/1885569/250453
             const containerLikeIntersection = ['bind', 'singleton', 'instance'].filter(value => propertyNames.indexOf(value) !== -1);
 
