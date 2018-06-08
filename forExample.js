@@ -8,7 +8,6 @@ const SortedArray = require('sorted-array');
 
 const defaultConfig = {
   // rootPath: undefined, // Absolute path of project root - MUST be defined
-  // envPrefix: undefined, // Prefix for env vars - MUST be defined
   providersPath: 'app/providers',
   kernelNameOnGlobal: 'kernel',
   postponedsMaxPassCount: 3,
@@ -17,13 +16,8 @@ const defaultConfig = {
   //
 };
 
-// FIXME Accept this (defaults) via `config` (see Mirket's ctor)
-// NOTE All values MUST be type of string
-const defaultAppEnv = {
-  host: 'localhost',
-  port: '3000',
-  //
-};
+/** @type Proxy */
+let singletonProxy = null;
 
 function getParamsPositionally(params, startFrom = 0) {
   const fnInfoArgs = [];
@@ -278,10 +272,6 @@ class Mirket {
     if (typeof config.rootPath !== 'string' || !path.isAbsolute(config.rootPath)) {
       throw new Error('Root path must be set to an absolute path pointing to the project root on the filesystem.');
     }
-    // FIXME Maybe there will be no envvars for the app, thus envPrefix?
-    if (typeof config.envPrefix !== 'string' || config.envPrefix === '') {
-      throw new Error('Prefix for environment variables must be set.');
-    }
 
     this.config = Object.assign({}, defaultConfig, config);
     this.providers = [];
@@ -310,21 +300,6 @@ class Mirket {
       },
     });
     //
-
-    this.gatherEnv(); // Populates `this.env`
-  }
-
-  gatherEnv() {
-    const appEnv = { ...defaultAppEnv };
-    const configEnvPrefixLen = this.config.envPrefix.length;
-    Object.keys(process.env)
-      .filter(name => name.startsWith(this.config.envPrefix))
-      .forEach((name) => {
-        // appEnv[name.substring(configEnvPrefixLen)] = process.env[name];
-        appEnv[name.substring(configEnvPrefixLen).toLocaleLowerCase()] = process.env[name];
-      });
-
-    this.instance('env', Object.freeze(appEnv));
   }
 
   _bind(alias, fn, isSingleton = false) {
@@ -553,7 +528,13 @@ class Mirket {
 
             // FIXME Manual update required here to sustain consistency
             // See https://stackoverflow.com/a/1885569/250453
-            const containerLikeIntersection = ['bind', 'singleton', 'instance'].filter(value => propertyNames.indexOf(value) !== -1);
+            const containerLikeIntersection = [
+              'bind',
+              'singleton',
+              'instance',
+              'make',
+              // Add Mirket methods that can be injected to the `boot()` of a provider
+            ].filter(value => propertyNames.indexOf(value) !== -1);
 
             if (containerLikeIntersection.length > 0) {
               // NOTE Just one container-related method name (e.g. 'bind', 'singleton', 'instance')
@@ -638,8 +619,9 @@ class Mirket {
           providerRecord.bootFn.fn.call(null, this._makeMany(providerRecord.bootFn.injections), {
             bind: this.bind.bind(this),
             singleton: this.singleton.bind(this),
-            // instance: this.instance.bind(this),
             instance: (alias, inst) => { this.instance.call(this, alias, inst, true); },
+            make: this.make.bind(this),
+            paths: this.pathsProxy,
           });
         } else {
           providerRecord.bootFn.fn.call(null, this._makeMany(providerRecord.bootFn.injections));
@@ -651,8 +633,9 @@ class Mirket {
       providerRecord.bootFn.fn.call(null, {
         bind: this.bind.bind(this),
         singleton: this.singleton.bind(this),
-        // instance: this.instance.bind(this),
         instance: (alias, inst) => { this.instance.call(this, alias, inst, true); },
+        make: this.make.bind(this),
+        paths: this.pathsProxy,
       });
     } else {
       providerRecord.bootFn.fn.call(null);
@@ -693,6 +676,11 @@ class Mirket {
           postponeds.push(providerRecord);
         }
       }
+    }
+
+    if (singletonProxy !== null) {
+      global[this.config.kernelNameOnGlobal] = singletonProxy;
+      global.make = this.make.bind(this);
     }
 
     return (postponeds.length === 0);
@@ -784,11 +772,7 @@ module.exports = (userConfig) => {
     },
   };
 
-  // FIXME Proxy creation and assignment to global SHOULD be done after `boot()`
-  const singletonProxy = new Proxy(singleton, proxyHandler);
-
-  global[singleton.config.kernelNameOnGlobal] = singletonProxy;
-  global.make = singleton.make.bind(singleton);
+  singletonProxy = new Proxy(singleton, proxyHandler);
 
   if (singleton.config.providersPath !== '' && singleton.config.autoRegisterProviders === true) {
     singleton.registerProviders();
