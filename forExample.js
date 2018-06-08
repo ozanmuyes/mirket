@@ -179,7 +179,7 @@ function providerRecordComparator(qd, existing) {
   let priorityQd = 0;
   let priorityExisting = 0;
 
-  const bindingsDifference = (existing.bindings.length - qd.bindings.length);
+  const bindingsDifference = ((existing.bindings.length || 0) - (qd.bindings.length || 0));
   if (bindingsDifference < 0) {
     priorityQd += (bindingsDifference * -2);
   } else {
@@ -646,7 +646,7 @@ class Mirket {
 
     while (postponeds.length > 0) {
       if (postponedsPassCount === this.config.postponedsMaxPassCount) {
-        throw new Error('Maximum pass count has been reached for postponed providers. Boot failed.');
+        throw new Error(`Maximum pass count has been reached for postponed provider${postponeds.length > 1 ? 's' : ''} ('${postponeds.map(p => p.name).join("', '")}'). Boot failed.`);
       }
       postponedsPassCount += 1;
 
