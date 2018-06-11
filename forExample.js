@@ -64,7 +64,7 @@ function parseBindingFn(fn) {
     }
 
     if (targetFn === null) {
-      throw new Error(`Trying to bind a class without a constructor ('${pb0.id.name}')`);
+      throw new Error(`Trying to bind (via 'bind' or 'singleton') a class without a constructor ('${pb0.id.name}').`);
     }
 
     fnInfo.isConstructor = true;
@@ -79,7 +79,11 @@ function parseBindingFn(fn) {
       fnInfo.hasInjectionParam = true;
 
       targetFn.params[0].properties.forEach((property) => {
-        fnInfo.injections.push(property.key.name);
+        if (property.key.type === 'Literal') {
+          fnInfo.injections.push(property.key.value);
+        } else { // TODO Find out what is else?
+          fnInfo.injections.push(property.key.name);
+        }
       });
 
       if (targetFn.params.length > 1) {
@@ -185,9 +189,9 @@ function providerRecordComparator(qd, existing) {
   const bindingsDifference = ((existing.bindings.length || 0) - (qd.bindings.length || 0));
   if (bindingsDifference < 0) {
     priorityQd += (bindingsDifference * -2);
-  } else {
+  } else if (bindingsDifference > 0) {
     priorityExisting += (bindingsDifference * 2);
-  }
+  } // else (bindingsDifference === 0) then no action to take
 
   // `hasInjectionParam` effects negatively
   //
@@ -221,6 +225,58 @@ function providerRecordComparator(qd, existing) {
   if (existing.bootFn.wantsContainer) {
     priorityExisting -= 1;
   }
+
+  // TODO Test here when comparing 'migrations' with 'commands'
+  if (qd.bootFn.wantedBindingMethods.length > 0) {
+    priorityQd += 1;
+
+    qd.bootFn.wantedBindingMethods.forEach((methodName) => {
+      switch (methodName) { // FIXME [MANUALNAME_INJECTABLE]
+        case 'bind':
+        case 'singleton':
+        case 'instance':
+          priorityQd += 1;
+          break;
+
+        case 'make':
+        case 'callInKernelContext':
+          priorityQd -= 1;
+          break;
+
+        // neutrals
+        case 'paths':
+        default: break;
+      }
+    });
+  }
+  if (existing.bootFn.wantedBindingMethods.length > 0) {
+    priorityExisting += 1;
+
+    existing.bootFn.wantedBindingMethods.forEach((methodName) => {
+      switch (methodName) { // FIXME [MANUALNAME_INJECTABLE]
+        case 'bind':
+        case 'singleton':
+        case 'instance':
+        case 'paths':
+          priorityExisting += 1;
+          break;
+
+        case 'make':
+        case 'callInKernelContext':
+          priorityExisting -= 1;
+          break;
+
+        default: break;
+      }
+    });
+  }
+  /* const wantedBindingDifference =
+    existing.bootFn.wantedBindingMethods.length - existing.bootFn.wantedBindingMethods.length;
+  if (wantedBindingDifference < 0) {
+    priorityQd += 1;
+  } else if (wantedBindingDifference > 0) {
+    priorityExisting += 1;
+  } */
 
   // Finalize sorting
   //
@@ -265,6 +321,138 @@ function getCallerFile() {
   Error.prepareStackTrace = originalFunc;
 
   return callerFile;
+}
+
+function getCallerInfo() {
+  const originalFunc = Error.prepareStackTrace;
+
+  let gotCallerInfo = false;
+  let callerInfo = {
+    filename: undefined,
+    //
+  };
+  let caller;
+  try {
+    const err = new Error();
+
+    // eslint-disable-next-line func-names
+    Error.prepareStackTrace = function (_, stack) { return stack; };
+
+    // NOTE This one for itself (`getCallerInfo()`)
+    err.stack.shift();
+    // NOTE This one for it's (`getCallerInfo()`'s) caller
+    err.stack.shift();
+    do {
+      caller = err.stack.shift();
+      callerInfo = {
+        filename: caller.getFileName(),
+        functionName: caller.getFunctionName(),
+        lineNumber: caller.getLineNumber(),
+        position: caller.getPosition(),
+        //
+      };
+    } while (callerInfo.filename === undefined);
+    /* caller = err.stack.shift();
+    callerInfo = {
+      filename: caller.getFileName(),
+      //
+    };
+
+    while (err.stack.length) {
+      callerInfo = err.stack.shift().getFileName();
+
+      if (callerInfo.filename !== undefined) {
+        break;
+      }
+    } */
+  } catch (e) {
+    //
+  }
+
+  Error.prepareStackTrace = originalFunc;
+
+  return callerInfo;
+}
+
+// TODO This method SHOULD be called somewhere else too (i.e. `boot()` on 'migrations' provider)
+function staticallyAnalyze(fn) {
+  const report = {
+    isAsync: false,
+    hasInjectionParam: false,
+    injections: [/* alias1, alias2, ... */],
+    wantsContainer: false,
+    wantedBindingMethods: [],
+    // fn, // The function itself
+  };
+
+  // NOTE Here we say this is a proper function to Esprima
+  //      since it throws error if the function string like;
+  //      `boot() { ... }`
+  let bootFnStr = fn.toString();
+  if (/^(\w+)\(([\w,\s{}:]*)\)\s{0,1}\{(?!\w+)/.test(bootFnStr)) {
+    bootFnStr = `function ${bootFnStr}`;
+  }
+  let pb0 = (esprima.parseScript(bootFnStr)).body[0];
+  if (pb0.type !== 'FunctionDeclaration' && pb0.expression) {
+    pb0 = pb0.expression;
+  }
+
+  report.isAsync = pb0.async;
+
+  // TODO Loop here at most 2 times (hence the note above)
+  //      Therefore we can enter the if statement's body below (~:335)
+  const maxArgumentCountToProcess = (pb0.params.length < 2 ? pb0.params.length : 2);
+  let i = 0;
+  while (i < maxArgumentCountToProcess) {
+    if (pb0.params[i].type === 'ObjectPattern') {
+      // First argument is defined as `{ ... }`
+
+      // Extract property names
+      //
+      const propertyNames = pb0.params[i].properties.map((property) => {
+        // TODO Figure out the checks below is really necessary - if not simplify this arrow function
+        if (property.computed) {
+          throw new Error(`Computed property names (${property.key.name}) are not supported.`);
+        }
+        if (property.method) {
+          throw new Error(`Methods (${property.key.name}) are not supported.`);
+        }
+
+        return property.key.name;
+      });
+
+      // FIXME [MANUALNAME_INJECTABLE]: Manual update required here to sustain consistency
+      // See https://stackoverflow.com/a/1885569/250453
+      const containerLikeIntersection = [
+        'bind',
+        'singleton',
+        'instance',
+        'make',
+        'callInKernelContext',
+        'paths',
+        // Add Mirket methods that can be injected to the `boot()` of a provider
+      ].filter(value => propertyNames.indexOf(value) !== -1);
+
+      // NOTE Maybe here we can validate each type of argument's number in the list,
+      //      e.g. if argument list is like this; `({ binding1 }, container, { instance })
+      //      do NOT send the container as the 2nd or 3rd argument.
+      if (containerLikeIntersection.length > 0) {
+        // NOTE Just one container-related method name (e.g. 'bind', 'singleton', 'instance')
+        //      is enough to say that it want the container.
+        report.wantsContainer = true;
+        report.wantedBindingMethods.push(...containerLikeIntersection);
+
+        // TODO Figure out what to do with others?
+      } else {
+        report.hasInjectionParam = true;
+        report.injections.push(...propertyNames);
+      }
+    }
+
+    i += 1;
+  }
+
+  return report;
 }
 
 class Mirket {
@@ -369,6 +557,7 @@ class Mirket {
         // FIXME Refactor the block below
         const injections = {};
         if (resolved.fnInfo.hasInjectionParam) {
+          // FIXME Use `_makeMany()` here
           resolved.fnInfo.injections.forEach((injectionAlias) => {
             injections[injectionAlias] = this.make(injectionAlias);
           });
@@ -431,12 +620,12 @@ class Mirket {
       },
       hasBootFn: false,
       bootFn: {
-        parsed: null,
-        isAsync: false,
-        hasInjectionParam: false,
-        injections: [/* alias1, alias2, ... */],
-        wantsContainer: false,
-        fn: null, // The boot function itself
+        // isAsync: false,
+        // hasInjectionParam: false,
+        // injections: [/* alias1, alias2, ... */],
+        // wantsContainer: false,
+        // wantedBindingMethods: [],
+        // fn: null, // The boot function itself
       },
     };
 
@@ -490,110 +679,71 @@ class Mirket {
 
     if (provider.boot && typeof provider.boot === 'function') {
       providerRecord.hasBootFn = true;
+      providerRecord.bootFn = staticallyAnalyze(provider.boot);
       providerRecord.bootFn.fn = provider.boot;
-
-      // NOTE Here we say this is a proper function to Esprima
-      //      since it throws error if the function string like;
-      //      `boot() { ... }`
-      let bootFnStr = provider.boot.toString();
-      if (/^(\w+)\(([\w,\s{}:]*)\)\s{0,1}\{(?!\w+)/.test(bootFnStr)) {
-        bootFnStr = `function ${bootFnStr}`;
-      }
-      let pb0 = (esprima.parseScript(bootFnStr)).body[0];
-      if (pb0.type !== 'FunctionDeclaration' && pb0.expression) {
-        pb0 = pb0.expression;
-      }
-
-      providerRecord.bootFn.isAsync = pb0.async;
-
-      // NOTE As of now considering only first 2 parameters
-      if (pb0.params.length > 0) {
-        switch (pb0.params[0].type) {
-          case 'ObjectPattern': {
-            // First argument is defined as `{ ... }`
-
-            // Extract property names
-            //
-            const propertyNames = pb0.params[0].properties.map((property) => {
-              // TODO Figure out the checks below is really necessary - if not simplify this arrow function
-              if (property.computed) {
-                throw new Error(`Computed property names (${property.key.name}) are not supported.`);
-              }
-              if (property.method) {
-                throw new Error(`Methods (${property.key.name}) are not supported.`);
-              }
-
-              return property.key.name;
-            });
-
-            // FIXME Manual update required here to sustain consistency
-            // See https://stackoverflow.com/a/1885569/250453
-            const containerLikeIntersection = [
-              'bind',
-              'singleton',
-              'instance',
-              'make',
-              // Add Mirket methods that can be injected to the `boot()` of a provider
-            ].filter(value => propertyNames.indexOf(value) !== -1);
-
-            if (containerLikeIntersection.length > 0) {
-              // NOTE Just one container-related method name (e.g. 'bind', 'singleton', 'instance')
-              //      is enough to say that it want the container.
-              providerRecord.bootFn.wantsContainer = true;
-
-              // TODO Figure out what to do with others?
-            } else {
-              providerRecord.bootFn.hasInjectionParam = true;
-              providerRecord.bootFn.injections.push(...propertyNames);
-            }
-
-            break;
-          }
-
-          // TODO Remove this obsolete case
-          case 'Identifier': {
-            if (pb0.params[0].name === 'container') {
-              providerRecord.bootFn.wantsContainer = true;
-            }
-
-            break;
-          }
-
-          default:
-            break;
-        }
-      }
-      if (
-        pb0.params.length > 1 &&
-        ((pb0.params[1].type === 'Identifier' && pb0.params[1].name === 'container') ||
-         (pb0.params[1].type === 'ObjectPattern'))
-      ) {
-        providerRecord.bootFn.wantsContainer = true;
-      }
-
-      providerRecord.bootFn.parsed = pb0;
     }
 
     // Store the record
     this.providers.push(providerRecord);
   }
 
-  registerProviders() {
-    /* eslint-disable max-len */
+  _processProvidersPath() {
+    // TODO read dirs, filter and return absolute paths
 
-    const providerFiles = fs.readdirSync(path.join(this.config.rootPath, this.config.providersPath));
+    const providerPathArr = (Array.isArray(this.config.providersPath))
+      ? this.config.providersPath
+      : [this.config.providersPath];
+    const records = [];
 
-    providerFiles.forEach((providerFilename) => {
-      // TODO If some will be omitted depending on any filename condition
-      //      do it here (i.e. regex pattern matching, etc.)
+    const filter = (filename) => {
+      if (filename[0] === '_') {
+        return false;
+      }
 
-      if (providerFilename[0] !== '_') {
-        // eslint-disable-next-line global-require, import/no-dynamic-require
-        this._registerProvider(require(path.join(this.config.rootPath, this.config.providersPath, providerFilename)), path.parse(providerFilename).name);
+      //
+
+      return true;
+    };
+
+    providerPathArr.forEach((filePath) => {
+      const absolutePath = (path.isAbsolute(filePath))
+        ? filePath
+        : path.join(this.config.rootPath, filePath);
+      const stat = fs.statSync(absolutePath);
+
+      if (stat.isDirectory()) {
+        fs.readdirSync(absolutePath)
+          .filter(filter)
+          .forEach((filename) => {
+            records.push({
+              absolutePath: `${absolutePath}/${filename}`,
+              filename: filename.replace('.js', ''),
+            });
+          });
+      } else {
+        const filename = path.basename(absolutePath, '.js');
+
+        if (filter(filename)) {
+          records.push({
+            absolutePath,
+            filename,
+            //
+          });
+        }
       }
     });
 
-    /* eslint-enable max-len */
+    return records;
+  }
+
+  registerProviders() {
+    /** @type Array */
+    const providerFileRecords = this._processProvidersPath();
+
+    providerFileRecords.forEach((providerFileRecord) => {
+      // eslint-disable-next-line global-require, import/no-dynamic-require
+      this._registerProvider(require(providerFileRecord.absolutePath), providerFileRecord.filename);
+    });
   }
 
   _hasAliasesBound(aliases) {
@@ -606,8 +756,39 @@ class Mirket {
     return arr.every(alias => this.container.has(alias));
   }
 
+  _callInKernelContext(fn) {
+    const record = staticallyAnalyze(fn);
+
+    const result = this._executeBootFn(fn, record.injections, record.wantsContainer);
+    return result;
+  }
+
+  _executeBootFn(/** @type Function */ bootFn, injections = [], wantsContainer = false) {
+    const args = [];
+
+    if (injections.length > 0) {
+      args.push(this._makeMany(injections));
+    }
+
+    if (wantsContainer === true) {
+      args.push({
+        bind: this.bind.bind(this),
+        singleton: this.singleton.bind(this),
+        instance: (alias, inst) => { this.instance.call(this, alias, inst, true); },
+        make: this.make.bind(this),
+        paths: this.pathsProxy,
+        callInKernelContext: this._callInKernelContext.bind(this),
+      });
+    }
+
+    return bootFn.call(null, ...args);
+  }
+
+  /* eslint-disable comma-dangle */
   _bootProvider(providerRecord) {
     // NOTE From 'experiment_boot-ordering.js::bootProvider'
+
+    // NOTE This function is to map `providerRecord` to `_executeBootFn()` arguments
 
     // TODO Resolve bindings that are injected
     //      If cannot resolve "all of them" then
@@ -616,33 +797,26 @@ class Mirket {
     if (providerRecord.bootFn.hasInjectionParam) {
       if (this._hasAliasesBound(providerRecord.bootFn.injections)) {
         if (providerRecord.bootFn.wantsContainer) {
-          providerRecord.bootFn.fn.call(null, this._makeMany(providerRecord.bootFn.injections), {
-            bind: this.bind.bind(this),
-            singleton: this.singleton.bind(this),
-            instance: (alias, inst) => { this.instance.call(this, alias, inst, true); },
-            make: this.make.bind(this),
-            paths: this.pathsProxy,
-          });
+          this._executeBootFn(
+            providerRecord.bootFn.fn,
+            providerRecord.bootFn.injections,
+            providerRecord.bootFn.wantsContainer
+          );
         } else {
-          providerRecord.bootFn.fn.call(null, this._makeMany(providerRecord.bootFn.injections));
+          this._executeBootFn(providerRecord.bootFn.fn, providerRecord.bootFn.injections);
         }
       } else {
         return false; // this provider to be 'postponed'
       }
     } else if (providerRecord.bootFn.wantsContainer) {
-      providerRecord.bootFn.fn.call(null, {
-        bind: this.bind.bind(this),
-        singleton: this.singleton.bind(this),
-        instance: (alias, inst) => { this.instance.call(this, alias, inst, true); },
-        make: this.make.bind(this),
-        paths: this.pathsProxy,
-      });
+      this._executeBootFn(providerRecord.bootFn.fn, [], true);
     } else {
-      providerRecord.bootFn.fn.call(null);
+      this._executeBootFn(providerRecord.bootFn.fn);
     }
 
     return true; // this provider booted successfully
   }
+  /* eslint-enable comma-dangle */
 
   // Synchronous (blocking)
   boot() {
@@ -704,6 +878,37 @@ class Mirket {
       }
     });
   }
+
+  dryBoot() {
+    const sorted = new SortedArray(
+      this.providers.filter(providerRecord => providerRecord.hasBootFn),
+      providerRecordComparator,
+    );
+
+    const outputLines = [];
+
+    outputLines.push('Sorted boot order:');
+    // TODO forEach
+    const sortedLen = sorted.array.length;
+    for (let i = 0; i < sortedLen; i += 1) {
+      outputLines.push(` ${i + 1}) ${sorted.array[i].name}`);
+    }
+
+    const callerInfo = getCallerInfo();
+    // eslint-disable-next-line prefer-template
+    outputLines.push(`\nTo disable dry boot change line ${callerInfo.lineNumber}${callerInfo.functionName === null ? '' : ' of the function ' + callerInfo.functionName} of the file '${callerInfo.filename}' to call only 'boot()' method.`);
+    /**
+     * filename
+     * functionName
+     * lineNumber
+     * position
+     */
+
+    console.log(outputLines.join('\n'));
+  }
+
+  // TODO Add public methods here upon added to `get()` of the Mirket
+  //      class' proxy handler [MANUALNAME_INSTANCEMTHDS]
 }
 
 module.exports = (userConfig) => {
@@ -712,8 +917,20 @@ module.exports = (userConfig) => {
   const proxyHandler = {
     get(/** @type Mirket */ target, property) {
       // First of all try to match a method name
-      // TODO Add public methods here upon added to Mirket class
-      if (['bind', 'singleton', 'instance', 'make', 'registerProviders', 'boot', 'set'].includes(property)) {
+      // FIXME [MANUALNAME_INSTANCEMTHDS]
+      if (
+        [
+          'bind',
+          'singleton',
+          'instance',
+          'make',
+          'registerProviders',
+          'boot',
+          'set',
+          'dryBoot',
+          //
+        ].includes(property)
+      ) {
         return target[property].bind(target);
       }
 
