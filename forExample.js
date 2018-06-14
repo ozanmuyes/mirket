@@ -687,15 +687,8 @@ class Mirket {
     this.providers.push(providerRecord);
   }
 
-  _processProvidersPath() {
-    // TODO read dirs, filter and return absolute paths
-
-    const providerPathArr = (Array.isArray(this.config.providersPath))
-      ? this.config.providersPath
-      : [this.config.providersPath];
-    const records = [];
-
-    const filter = (filename) => {
+  _processProviderDirectory(dirPath) {
+    const fileFilter = (filename) => {
       if (filename[0] === '_') {
         return false;
       }
@@ -705,32 +698,56 @@ class Mirket {
       return true;
     };
 
-    providerPathArr.forEach((filePath) => {
-      const absolutePath = (path.isAbsolute(filePath))
-        ? filePath
-        : path.join(this.config.rootPath, filePath);
-      const stat = fs.statSync(absolutePath);
+    const records = [];
+    const absolutePath = (path.isAbsolute(dirPath))
+      ? dirPath
+      : path.join(this.config.rootPath, dirPath);
+    const stat = fs.statSync(absolutePath);
 
-      if (stat.isDirectory()) {
-        fs.readdirSync(absolutePath)
-          .filter(filter)
-          .forEach((filename) => {
-            records.push({
-              absolutePath: `${absolutePath}/${filename}`,
-              filename: filename.replace('.js', ''),
-            });
-          });
-      } else {
+    if (stat.isDirectory()) {
+      if (fs.existsSync(path.join(absolutePath, 'index.js'))) {
+        const indexFilePath = path.join(absolutePath, 'index.js');
         const filename = path.basename(absolutePath, '.js');
 
-        if (filter(filename)) {
+        if (fileFilter(filename)) {
           records.push({
-            absolutePath,
+            absolutePath: indexFilePath,
             filename,
             //
           });
         }
+      } else {
+        fs.readdirSync(absolutePath)
+          .filter(fileFilter)
+          .forEach((filename) => {
+            records.push(...this._processProviderDirectory(path.join(absolutePath, filename)));
+          });
       }
+    } else {
+      const filename = path.basename(absolutePath, '.js');
+
+      if (fileFilter(filename)) {
+        records.push({
+          absolutePath,
+          filename,
+          //
+        });
+      }
+    }
+
+    return records;
+  }
+
+  _processProvidersPath() {
+    // TODO read dirs, filter and return absolute paths
+
+    const providerPathArr = (Array.isArray(this.config.providersPath))
+      ? this.config.providersPath
+      : [this.config.providersPath];
+    const records = [];
+
+    providerPathArr.forEach((filePath) => {
+      records.push(...this._processProviderDirectory(filePath));
     });
 
     return records;
@@ -886,6 +903,11 @@ class Mirket {
     );
 
     const outputLines = [];
+
+    outputLines.push('Found providers;');
+    for (let i = 0; i < this.providers.length; i += 1) {
+      outputLines.push(` ${i + 1}) ${this.providers[i].name}`);
+    }
 
     outputLines.push('Sorted boot order:');
     // TODO forEach
