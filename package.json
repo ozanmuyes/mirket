@@ -16,11 +16,8 @@
   "author": "Ozan Müyesseroğlu <ozanmuyes@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "clone": "^1.0.4",
-    "debug": "^3.1.0",
     "esprima": "^4.0.0",
-    "sorted-array": "^2.0.2",
-    "tinyqueue": "^1.2.3"
+    "sorted-array": "^2.0.2"
   },
   "devDependencies": {
     "babel-eslint": "^8.2.2",

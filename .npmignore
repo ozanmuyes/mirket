@@ -1,0 +1,9 @@
+examples/
+test/
+.vscode/
+IGN_*
+experiment_*
+.editorconfig
+.eslintrc.js
+*.code-*
+
