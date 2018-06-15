@@ -8,6 +8,9 @@ module.exports = {
     es6: true,
     mocha: true,
   },
+  globals: {
+    make: true,
+  },
   extends: 'airbnb-base',
   plugins: [
     'mocha',
@@ -50,9 +53,9 @@ module.exports = {
       },
     },
     {
-      files: ['database/factories/*.js'],
+      files: ['examples/**/providers/*.js'],
       rules: {
-        'import/no-extraneous-dependencies': ['error', {'optionalDependencies': false}]
+        'global-require': 0
       },
     },
   ],

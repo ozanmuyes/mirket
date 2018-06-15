@@ -7,7 +7,7 @@ const chai = require('chai');
 const assert = chai.assert;
 const expect = chai.expect;
 
-function removeMirketFromRequire() {
+function removeMirketFromRequireCache() {
   const resolved = require.resolve('../');
 
   // If Mirket was `require`d before for any other test file
@@ -17,15 +17,12 @@ function removeMirketFromRequire() {
   }
 }
 
-describe.skip('Mirket Singleton Instantiation', function() {
+describe.skip('1) Mirket Singleton Instantiation', function() {
   const config = {
     rootPath: path.resolve(__dirname, '..'),
-    providersPath: 'app/providers', // relative to `rootPath` (advised)
-    // providersPath: '/home/USER/Code/...', // absolute path (discouraged)
-    //
   };
 
-  beforeEach(removeMirketFromRequire);
+  beforeEach(removeMirketFromRequireCache);
 
   it('should set singleton on global', function() {
     expect(global.mirket).to.be.undefined;
