@@ -389,7 +389,7 @@ function staticallyAnalyze(fn) {
   //      since it throws error if the function string like;
   //      `boot() { ... }`
   let bootFnStr = fn.toString();
-  if (/^(\w+)\(([\w,\s{}:]*)\)\s{0,1}\{(?!\w+)/.test(bootFnStr)) {
+  if (/^(\w+)\(([\w,\s{}:\'\"]*)\)\s{0,1}\{(?!\w+)/.test(bootFnStr)) {
     bootFnStr = `function ${bootFnStr}`;
   }
   let pb0 = (esprima.parseScript(bootFnStr)).body[0];
@@ -418,7 +418,7 @@ function staticallyAnalyze(fn) {
           throw new Error(`Methods (${property.key.name}) are not supported.`);
         }
 
-        return property.key.name;
+        return (property.key.name || property.key.value);
       });
 
       // FIXME [MANUALNAME_INJECTABLE]: Manual update required here to sustain consistency

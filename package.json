@@ -1,6 +1,6 @@
 {
   "name": "mirket",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Kernel on-steroids for your next Node.js application",
   "main": "index.js",
   "scripts": {
@@ -15,6 +15,14 @@
   ],
   "author": "Ozan Müyesseroğlu <ozanmuyes@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ozanmuyes/mirket.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ozanmuyes/mirket/issues"
+  },
+  "homepage": "https://github.com/ozanmuyes/mirket#readme",
   "dependencies": {
     "esprima": "^4.0.0",
     "sorted-array": "^2.0.2"
