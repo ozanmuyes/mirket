@@ -1,3 +1,5 @@
+'use strict';
+
 module.exports = {
   disable: false,
   boot({ config }, { instance }) {

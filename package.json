@@ -1,6 +1,6 @@
 {
   "name": "mirket",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Kernel on-steroids for your next Node.js application",
   "main": "index.js",
   "scripts": {
@@ -11,7 +11,8 @@
     "container",
     "bind",
     "resolve",
-    "inject"
+    "inject",
+    "event"
   ],
   "author": "Ozan Müyesseroğlu <ozanmuyes@gmail.com>",
   "license": "MIT",
@@ -31,5 +32,6 @@
   },
   "engines": {
     "node": "^7.6.0"
-  }
+  },
+  "types": "typings/mirket/index.d.ts"
 }

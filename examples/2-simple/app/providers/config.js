@@ -1,3 +1,5 @@
+'use strict';
+
 module.exports = {
   register({ instance }) {
     instance('config', {

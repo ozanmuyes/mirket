@@ -1,10 +1,9 @@
-const mirket = require('../../forExample')({
+'use strict';
+
+const mirket = require('../../')({
   rootPath: __dirname,
   providersPath: 'app/providers',
 });
-
-// FIXME Delete the line below after combining 'forExample' and 'index'
-global.kernel = mirket;
 
 /* const debug = mirket.make('debug', 'index');
 debug('fin'); */

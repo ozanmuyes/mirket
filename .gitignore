@@ -33,5 +33,5 @@ node_modules
 *.code-workspace
 
 # Application
-.env
 *.db
+IGN_*

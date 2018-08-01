@@ -1,9 +1,16 @@
+'use strict';
+
 const assert = require('assert');
 
-const mirket = require('../../forExample')({
+const Mirket = require('../../'); // eslint-disable-line import/newline-after-import
+const mirket = Mirket({
   rootPath: __dirname,
   providersPath: '',
 });
+/* const mirket = require('../../')({
+  rootPath: __dirname,
+  providersPath: '',
+}); */
 
 function getRandomInt(max = 1000) {
   return Math.floor(Math.random() * Math.floor(max));
@@ -15,13 +22,22 @@ class Foo {
   constructor(message = null) {
     this.id = getRandomInt();
     this.type = 'Foo';
-    this.message = message || `${this.type}#${this.id}`;
+    this.message = (message || `${this.type}#${this.id}`);
   }
+}
+
+// FooCtr
+//
+function FooCtr(message = null) {
+  this.id = getRandomInt();
+  this.type = 'Bar';
+  this.message = (message || `${this.type}#${this.id}`);
 }
 
 // bind
 //
-mirket.bind('bindingFoo', message => new Foo(message));
+// mirket.bind('bindingFoo', message => new Foo(message));
+mirket.bind('bindingFoo', Foo);
 
 /** @type Foo */
 const bfoo1 = mirket.make('bindingFoo');
@@ -31,6 +47,21 @@ const bfoo2 = mirket.make('bindingFoo', 'Hello from bfoo2');
 assert(bfoo1.id !== bfoo2.id);
 assert(bfoo1.message === `${bfoo1.type}#${bfoo1.id}`);
 assert(bfoo2.message === 'Hello from bfoo2');
+
+
+// mirket.bind('bindingFooCtr', message => new FooCtr(message)); // This works
+mirket.bind('bindingFooCtr', FooCtr, true); // NOTE Explicitly state that the function is a 'constructor' // this one uses positional args
+
+/** @type FooCtr */
+const bfooctr1 = mirket.make('bindingFooCtr');
+/** @type FooCtr */
+const bfooctr2 = mirket.make('bindingFooCtr', 'Hello from bfooctr2');
+
+assert(bfooctr1 !== undefined);
+assert(bfooctr2 !== undefined);
+assert(bfooctr1.id !== bfooctr2.id);
+assert(bfooctr1.message === `${bfooctr1.type}#${bfooctr1.id}`);
+assert(bfooctr2.message === 'Hello from bfooctr2');
 
 
 // singleton
@@ -151,6 +182,19 @@ assert(bbazc3.message === `${bbazc3.foo.message} ${bbazc3.bar.message}`);
 assert(bbazc3.id === 35);
 assert(bbazc4.message === `${bbazc4.foo.message} ${bbazc4.bar.message}`);
 assert(bbazc4.id === 35);
+
+
+// aliases
+//
+mirket.alias('singletonBar', 'sinbar');
+
+/** @type Bar */
+const asbar1 = mirket.make('singletonBar');
+/** @type Bar */
+const asbar2 = mirket.make('sinbar');
+
+assert(sbar1.id === asbar1.id);
+assert(asbar1.id === asbar2.id);
 
 
 console.log('Everything is OK');

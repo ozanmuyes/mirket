@@ -1,7 +1,10 @@
+'use strict';
+
 /* eslint-disable no-underscore-dangle */
 
 const fs = require('fs');
 const path = require('path');
+const EventEmitter = require('events');
 
 const esprima = require('esprima');
 const SortedArray = require('sorted-array');
@@ -15,6 +18,13 @@ const defaultConfig = {
   setOnBoxEvenIfSet: false,
   //
 };
+
+// The events listed here can NOT be `emit`ted anything other than the Mirket itself
+const internalEventNames = [
+  'booted',
+  'error', // NOTE Reserved
+  //
+];
 
 /** @type Proxy */
 let singletonProxy = null;
@@ -40,12 +50,12 @@ function getParamsPositionally(params, startFrom = 0) {
   return fnInfoArgs;
 }
 
-function parseBindingFn(fn) {
+function parseBindingFn(fn, isConstructor) {
   // TODO Consider adding support for `foo({ bar, baz } = { ... })
   //                                                    ^^^
 
   const fnInfo = {
-    isConstructor: false,
+    isConstructor,
     hasInjectionParam: false,
     injections: [],
     acceptsArgs: false,
@@ -70,7 +80,7 @@ function parseBindingFn(fn) {
     fnInfo.isConstructor = true;
   } else if (pb0.expression) {
     targetFn = pb0.expression;
-  } else {
+  } else { // pb0.type === 'FunctionDeclaration'
     targetFn = pb0;
   }
 
@@ -430,6 +440,10 @@ function staticallyAnalyze(fn) {
         'make',
         'callInKernelContext',
         'paths',
+        'on',
+        'once',
+        'off',
+        'emit',
         // Add Mirket methods that can be injected to the `boot()` of a provider
       ].filter(value => propertyNames.indexOf(value) !== -1);
 
@@ -467,6 +481,10 @@ class Mirket {
     this.box = new Map(); // to store app specific settings - user land
     this.pathsProxy = new Proxy(new Map([['root', this.config.rootPath]]), {
       get(/** @type Map */ target, property) {
+        if (!target.has(property)) {
+          throw new Error(`Trying to get unknown path ('${property}').`);
+        }
+
         return target.get(property);
       },
       set(/** @type Map */ target, property, value) {
@@ -487,10 +505,12 @@ class Mirket {
         }
       },
     });
+    this.aliases = {};
+    this.eventEmitter = new EventEmitter();
     //
   }
 
-  _bind(alias, fn, isSingleton = false) {
+  _bind(alias, fn, isSingleton = false, isConstructor = false) {
     if (typeof fn !== 'function') {
       throw new Error(`Cannot bind an instance with '${isSingleton ? 'singleton' : 'bind'}', use 'instance' instead.`);
     }
@@ -503,15 +523,21 @@ class Mirket {
       isInstance: false,
       alias,
       timesMade: 0,
-      fnInfo: parseBindingFn(fn),
+      fnInfo: parseBindingFn(fn, isConstructor),
       fn,
       cached: null,
       //
     });
   }
 
-  bind(alias, fn) {
-    this._bind(alias, fn);
+  /**
+   * Bind a class or a factory function to a alias (name)
+   * @param {String} alias Binding alias (name)
+   * @param {Function} fn Factory (constructor) function
+   * @param {Boolean} isConstructor Explicitly state that the function is a constructor
+   */
+  bind(alias, fn, isConstructor = false) {
+    this._bind(alias, fn, false, isConstructor);
   }
 
   singleton(alias, fn) {
@@ -535,10 +561,18 @@ class Mirket {
   }
 
   make(alias, ...args) {
-    const resolved = this.container.get(alias);
+    let resolved = this.container.get(alias);
 
     if (typeof resolved === 'undefined') {
-      throw new Error(`Trying to 'make' an unbound alias ('${alias}').`);
+      // try to resolve the alias first
+      if (!Object.prototype.hasOwnProperty.call(this.aliases, alias)) {
+        throw new Error(`Trying to 'make' an unbound alias ('${alias}').`);
+      }
+
+      // We can count on that if an alias exists there MUST be a corresponding,
+      // existing binding too therefore there is no need to check again
+      // if the `resolved` is defined (not `null`) or not.
+      resolved = this.container.get(this.aliases[alias]);
     }
 
     switch (true) {
@@ -605,6 +639,7 @@ class Mirket {
 
   _registerProvider(provider, filename = '') {
     // NOTE From 'experiment_registering.js::register'
+    // FIXME Throw error as soon as possible if `boot()` is async
 
     if (provider.disable && provider.disable === true) {
       return;
@@ -702,6 +737,9 @@ class Mirket {
     const absolutePath = (path.isAbsolute(dirPath))
       ? dirPath
       : path.join(this.config.rootPath, dirPath);
+    if (!fs.existsSync(absolutePath)) {
+      throw new Error(`Providers path ('${absolutePath}') does not exist. If it's relative to the project directory use this form; 'providers' instead of '/providers'.`);
+    }
     const stat = fs.statSync(absolutePath);
 
     if (stat.isDirectory()) {
@@ -795,6 +833,11 @@ class Mirket {
         make: this.make.bind(this),
         paths: this.pathsProxy,
         callInKernelContext: this._callInKernelContext.bind(this),
+        on: this.on.bind(this),
+        once: this.once.bind(this),
+        off: this.off.bind(this),
+        emit: this.emit.bind(this),
+        // NOTE Add function names that can be injected to `boot()` functions of providers
       });
     }
 
@@ -869,12 +912,19 @@ class Mirket {
       }
     }
 
-    if (singletonProxy !== null) {
-      global[this.config.kernelNameOnGlobal] = singletonProxy;
-      global.make = this.make.bind(this);
+    if (postponeds.length === 0) {
+      if (singletonProxy !== null) {
+        global[this.config.kernelNameOnGlobal] = singletonProxy;
+        global.make = this.make.bind(this);
+      }
+
+      this.eventEmitter.emit('booted');
+
+      return true;
     }
 
-    return (postponeds.length === 0);
+    // Actually here is not going to be reached
+    return false;
   }
 
   set(kvps) {
@@ -929,6 +979,34 @@ class Mirket {
     console.log(outputLines.join('\n'));
   }
 
+  alias(existingBindingName, alias) {
+    if (!this.container.has(existingBindingName)) {
+      throw new Error(`Given binding name ('${existingBindingName}') must be exist on the kernel to be aliased.`);
+    }
+
+    this.aliases[alias] = existingBindingName;
+  }
+
+  on(eventName, listener) {
+    this.eventEmitter.on.call(this.eventEmitter, eventName, listener);
+  }
+
+  once(eventName, listener) {
+    this.eventEmitter.once.call(this.eventEmitter, eventName, listener);
+  }
+
+  off(eventName, listener) {
+    this.eventEmitter.off.call(this.eventEmitter, eventName, listener);
+  }
+
+  emit(eventName, listener) {
+    if (internalEventNames.includes(eventName)) {
+      throw new Error(`Can not emit an internal event ('${eventName}').`);
+    }
+
+    this.eventEmitter.emit.call(this.eventEmitter, eventName, listener);
+  }
+
   // TODO Add public methods here upon added to `get()` of the Mirket
   //      class' proxy handler [MANUALNAME_INSTANCEMTHDS]
 }
@@ -950,7 +1028,21 @@ module.exports = (userConfig) => {
           'boot',
           'set',
           'dryBoot',
+          'alias',
           //
+        ].includes(property)
+      ) {
+        // FIXME do NOT `bind()` everytime - cache the `bind()` result for the \
+        //       first time and return it when needed.
+        return target[property].bind(target);
+      }
+
+      if (
+        [
+          'on',
+          'once',
+          'off',
+          // See https://nodejs.org/docs/latest-v8.x/api/events.html
         ].includes(property)
       ) {
         return target[property].bind(target);
@@ -966,6 +1058,10 @@ module.exports = (userConfig) => {
 
       if (target.container.has(property)) {
         return target.make(property);
+      }
+
+      if (target.aliases[property]) {
+        return target.make(target.aliases[property]);
       }
 
       // TODO Is there any other place to look at to `get` anything out of the kernel?
@@ -984,7 +1080,7 @@ module.exports = (userConfig) => {
             : value[pathKey];
         });
 
-        return;
+        return true;
       }
 
       const valueType = typeof value;
@@ -993,7 +1089,7 @@ module.exports = (userConfig) => {
         valueType === 'undefined' ||
         (valueType === 'object' && value === null)
       ) {
-        return;
+        return false;
       } else if (valueType === 'function') { // FIXME This check won't be doing in the `set` method of the class
         throw new Error("Cannot set a function on the kernel. If your intention is to bind something use either 'bind', 'singleton' or 'instance'.");
       }
@@ -1005,6 +1101,8 @@ module.exports = (userConfig) => {
       } else if (!target.box.has(property)) {
         target.box.set(property, value);
       }
+
+      return true;
     },
     has(/** @type Mirket */ target, property) {
       return target.container.has(property);
