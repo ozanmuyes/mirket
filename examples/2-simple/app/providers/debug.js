@@ -1,3 +1,5 @@
+'use strict';
+
 module.exports = {
   register({ bind }) {
     const debug = require('debug');

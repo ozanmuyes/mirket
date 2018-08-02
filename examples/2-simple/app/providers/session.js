@@ -1,3 +1,5 @@
+'use strict';
+
 class Session {
   constructor(storage) {
     this.storage = storage;

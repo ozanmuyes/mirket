@@ -1,3 +1,5 @@
+'use strict';
+
 const debug = global.kernel.make('debug')('app');
 const session = global.kernel.make('session');
 
