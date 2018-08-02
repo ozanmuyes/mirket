@@ -91,6 +91,21 @@ assert(ref === mfoo);
 assert(ref.message === 'i\'m the only \'foo\' instance which created manually');
 
 
+// The below should error
+//
+let errord = false;
+try {
+  mirket.instance('fn', () => 42);
+} catch (err) {
+  // It's OK the above error'd
+  errord = true;
+}
+
+if (errord === false) {
+  throw new Error('instance method should error on functions except providers.');
+}
+
+
 // Bar
 //
 class Bar {

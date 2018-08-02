@@ -503,6 +503,8 @@ class Mirket {
         } else { // relative to project root
           target.set(property, path.resolve(target.get('root'), processedPath));
         }
+
+        return true;
       },
     });
     this.aliases = {};
@@ -1034,6 +1036,12 @@ module.exports = (userConfig) => {
       ) {
         // FIXME do NOT `bind()` everytime - cache the `bind()` result for the \
         //       first time and return it when needed.
+
+        // NOTE Do NOT expose the 3rd parameter to the user
+        if (property === 'instance') {
+          return (alias, inst) => target.instance.call(target, alias, inst, false);
+        }
+
         return target[property].bind(target);
       }
 
