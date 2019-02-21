@@ -1,3 +1,10 @@
+<h1>
+  Please refer to <a href="https://github.com/rezeus/kernel">@rezeus/kernel</a> for a better, more secure implementation.<br>
+  If any of your project is depending on this package sorry for the inconvenience.
+</h1>
+
+---
+
 // TODO develop branch'ine commit oluştur. see ~/Desktop/mirket_changes.zip file
 
 # Mirket
